@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "Pencheck",
+    "slug": "habit-log",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-sqlite"
+    ]
+  }
+}
