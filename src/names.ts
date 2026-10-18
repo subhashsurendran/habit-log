@@ -19,7 +19,7 @@ export function validateName(raw: string): string {
 }
 
 export function entryForName(name: string, chosen: Entry): Entry {
-  if (isReservedTimeName(name)) return "time";
+  if (isReservedTimeName(name)) return "timer";
   return chosen;
 }
 

@@ -1,4 +1,4 @@
-export type Entry = "tick" | "time";
+export type Entry = "tick" | "timer" | "journal";
 
 /** v1 writes "manual". "alarm" can be stored later. This app does not create it. */
 export type MarkSource = "manual" | "alarm";
@@ -9,6 +9,11 @@ export type Habit = {
   sortOrder: number;
   entry: Entry;
   blankCountsAsMiss: boolean;
+  /** Whole hours after a tick or a saved time. Null means no follow-up. Journal rows leave this empty. */
+  followUpHours: number | null;
+  reminderHour: number | null;
+  reminderMinute: number | null;
+  tags: string[];
 };
 
 export type DayRecord = {
@@ -18,6 +23,9 @@ export type DayRecord = {
   source: MarkSource;
   clockHour: number | null;
   clockMinute: number | null;
+  note: string | null;
+  photoPath: string | null;
+  diaryMark: boolean;
 };
 
 export type MonthState = {
@@ -28,3 +36,5 @@ export type MonthState = {
   habits: Habit[];
   records: DayRecord[];
 };
+
+export type TickOutcome = "tick" | "cross" | "empty";

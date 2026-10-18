@@ -1,29 +1,45 @@
 import type { Entry } from "./types";
 
-export type ShownMark = "tick" | "cross" | "time" | "blank";
+export type ShownMark = "tick" | "cross" | "time" | "note" | "photo" | "diary" | "blank";
 
-/** What the grid is allowed to paint. A time cell never shows a tick or a cross. */
-export function shownMark(entry: Entry, display: string | undefined): ShownMark {
-  if (!display) return "blank";
-  if (entry === "time") {
-    if (display === "tick" || display === "cross") return "blank";
-    return "time";
+export type CellView = {
+  display?: string;
+  note?: string | null;
+  photoPath?: string | null;
+  diaryMark?: boolean;
+  clockHour?: number | null;
+  clockMinute?: number | null;
+};
+
+/** What the grid may paint. A timer never shows a tick. A journal done-mark is not a tick. */
+export function shownMark(entry: Entry, cell: CellView | undefined): ShownMark {
+  if (!cell) return "blank";
+  if (entry === "timer") {
+    if (cell.display === "cross") return "cross";
+    if (cell.display === "tick") return "blank";
+    if (cell.clockHour != null && cell.clockMinute != null) return "time";
+    if (cell.display && cell.display !== "tick") return "time";
+    return "blank";
   }
-  if (display === "tick") return "tick";
-  if (display === "cross") return "cross";
+  if (entry === "journal") {
+    if (cell.display === "cross") return "cross";
+    if (cell.note) return "note";
+    if (cell.photoPath) return "photo";
+    if (cell.diaryMark) return "diary";
+    return "blank";
+  }
+  if (cell.display === "tick") return "tick";
+  if (cell.display === "cross") return "cross";
+  if (cell.note) return "note";
   return "blank";
 }
 
 /**
  * A drawn cross is a miss. A blank cell is a miss only when the row flag is on.
- * The grid does not draw that miss. There is no insight screen in this pass.
+ * The grid does not draw that miss until the day is wrapped.
  */
-export function countsAsMiss(
-  entry: Entry,
-  blankCountsAsMiss: boolean,
-  display: string | undefined,
-): boolean {
-  const shown = shownMark(entry, display);
+export function countsAsMiss(entry: Entry, blankCountsAsMiss: boolean, cell: CellView | undefined): boolean {
+  const shown = shownMark(entry, cell);
   if (shown === "cross") return true;
   if (shown === "blank") return blankCountsAsMiss;
   return false;
