@@ -167,11 +167,10 @@ export function MonthScreen() {
 
   return (
     <SafeAreaView style={styles.screen} testID="month-grid">
-      <View style={styles.top}>
+      <View style={styles.brandBlock}>
         <BrandLockup />
-        <Text style={styles.month} testID="month-title">
-          {monthTitle(month.year, month.month)}
-        </Text>
+      </View>
+      <View style={styles.controls}>
         <Text style={styles.hint}>Tap a name to edit the row. Days scroll sideways.</Text>
         <View style={styles.actions}>
           {month.locked ? null : (
@@ -212,6 +211,11 @@ export function MonthScreen() {
             : "The month starts blank. A cross appears only after a day has passed. Wrap up day closes today and locks the rows."}
         </Text>
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
+      </View>
+      <View style={styles.monthBar}>
+        <Text style={styles.month} testID="month-title">
+          {monthTitle(month.year, month.month)}
+        </Text>
       </View>
 
       <ScrollView style={styles.vertical}>
@@ -1465,9 +1469,11 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#16121C" },
-  top: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  brandBlock: { paddingHorizontal: 20, paddingTop: 28, paddingBottom: 8 },
+  controls: { paddingHorizontal: 16, marginTop: 28 },
+  monthBar: { paddingHorizontal: 16, marginTop: 28, marginBottom: 16 },
   scorePercent: { fontSize: 40, fontWeight: "800", color: "#F6F1FF" },
-  month: { marginTop: 8, fontSize: 16, color: "#F6F1FF", fontWeight: "800" },
+  month: { fontSize: 18, color: "#F6F1FF", fontWeight: "800" },
   hint: { marginTop: 6, color: "#D9CCEA", fontSize: 13, lineHeight: 18 },
   ask: { marginTop: 12, color: "#F6F1FF", fontSize: 16, lineHeight: 22, fontWeight: "700" },
   banner: { marginTop: 8, color: "#FF8AA0", fontSize: 14 },

@@ -4,7 +4,7 @@ export const TAGLINE = "Small checks. Lasting habits.";
 
 export function BrandLockup() {
   return (
-    <View style={styles.row}>
+    <View style={styles.block} testID="mydtc-brand">
       <View style={styles.logoBezel}>
         <Image
           source={require("../assets/mydtc-logo.png")}
@@ -13,33 +13,30 @@ export function BrandLockup() {
           testID="mydtc-logo"
         />
       </View>
-      <View style={styles.copy}>
-        <Text style={styles.wordmark} testID="mydtc-wordmark">
-          <Text style={styles.my} testID="mydtc-my">
-            My
-          </Text>
-          <Text style={styles.dtc} testID="mydtc-dtc">
-            DTC
-          </Text>
+      <Text style={styles.wordmark} testID="mydtc-wordmark">
+        <Text style={styles.my} testID="mydtc-my">
+          My
         </Text>
-        <Text style={styles.tagline}>{TAGLINE}</Text>
-      </View>
+        <Text style={styles.dtc} testID="mydtc-dtc">
+          DTC
+        </Text>
+      </Text>
+      <Text style={styles.tagline}>{TAGLINE}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: 12 },
+  block: { alignItems: "center", paddingTop: 8, paddingBottom: 4 },
   logoBezel: {
-    padding: 2,
-    borderRadius: 18,
+    padding: 3,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: "#F6EEFF",
     backgroundColor: "#D8C4FF",
   },
-  logo: { width: 68, height: 68, borderRadius: 15 },
-  copy: { flex: 1 },
-  wordmark: { fontSize: 28, fontWeight: "800", letterSpacing: -0.4 },
+  logo: { width: 88, height: 88, borderRadius: 18 },
+  wordmark: { marginTop: 16, fontSize: 40, fontWeight: "800", letterSpacing: -0.6 },
   my: { color: "#3DDC97" },
   dtc: {
     color: "#FFE56A",
@@ -48,11 +45,12 @@ const styles = StyleSheet.create({
     textShadowRadius: 8,
   },
   tagline: {
-    marginTop: 4,
+    marginTop: 8,
     color: "#E7DCF8",
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
     fontWeight: "500",
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
+    textAlign: "center",
   },
 });
