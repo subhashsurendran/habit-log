@@ -2,8 +2,8 @@ import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
 import { checklistSummary, mergeCarriedItems, normalizeChecklist, parseStoredChecklist, sameChecklist } from "./checklist";
 import { parseFollowUpHours } from "./followUp";
-import { dateFor, daysInMonth, nextDateInSameMonth, shouldWrapDate } from "./month";
-import { entryForName, validateName } from "./names";
+import { currentMonth, dateFor, daysInMonth, monthId, nextDateInSameMonth, shouldWrapDate } from "./month";
+import { cleanName, entryForName, NAME_MAX, validateName } from "./names";
 import { parseStoredTags, normalizeTags } from "./tags";
 import { formatClock12, parseTimeInput } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MarkSource, MonthState, TickOutcome } from "./types";
@@ -122,6 +122,26 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
       PRIMARY KEY (month_id, date)
     );
     CREATE INDEX IF NOT EXISTS habits_month_order ON habits (month_id, sort_order);
+    CREATE TABLE IF NOT EXISTS templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 40)
+    );
+    CREATE TABLE IF NOT EXISTS template_rows (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 40),
+      sort_order INTEGER NOT NULL,
+      entry TEXT NOT NULL CHECK (entry IN ('tick', 'timer', 'journal', 'checklist')),
+      blank_counts_as_miss INTEGER NOT NULL CHECK (blank_counts_as_miss IN (0, 1)),
+      reminder_hour INTEGER,
+      reminder_minute INTEGER,
+      tags TEXT NOT NULL DEFAULT '[]',
+      FOREIGN KEY (template_id) REFERENCES templates (id) ON DELETE CASCADE,
+      CHECK (
+        (reminder_hour IS NULL AND reminder_minute IS NULL)
+        OR (reminder_hour BETWEEN 0 AND 23 AND reminder_minute BETWEEN 0 AND 59)
+      )
+    );
   `);
   await ensureHabitColumns(db);
   await ensureMonthColumns(db);
@@ -170,7 +190,199 @@ async function loadMonthNow(db: SQLiteDatabase, now = new Date()): Promise<Month
 
   await rememberMonthStart(db, id, today);
   await wrapPastDays(db, id, year, month, now);
+  await db.runAsync("UPDATE months SET locked = 1 WHERE id < ?", id);
   return readMonth(db, id);
+}
+
+export function openMonth(db: SQLiteDatabase, monthId: string, now = new Date()): Promise<MonthState> {
+  return withDbLock(() => openMonthNow(db, monthId, now));
+}
+
+async function openMonthNow(db: SQLiteDatabase, monthId: string, now = new Date()): Promise<MonthState> {
+  const parsed = assertMonthId(monthId);
+  const current = currentMonth(now);
+  if (parsed.id === current.id) return loadMonthNow(db, now);
+  const existing = await db.getFirstAsync<{ id: string }>("SELECT id FROM months WHERE id = ?", parsed.id);
+  if (!existing) throw new Error("That month is not stored.");
+  return readMonth(db, parsed.id);
+}
+
+export type StoredMonth = { id: string; year: number; month: number };
+export type HabitTemplate = { id: string; name: string };
+export type DashboardState = {
+  current: MonthState;
+  past: StoredMonth[];
+  templates: HabitTemplate[];
+};
+
+export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<DashboardState> {
+  return withDbLock(async () => {
+    const current = await loadMonthNow(db, now);
+    const past = await db.getAllAsync<{ id: string; year: number; month: number }>(
+      "SELECT id, year, month FROM months WHERE id != ? ORDER BY id DESC",
+      current.id,
+    );
+    const templates = await db.getAllAsync<{ id: string; name: string }>(
+      "SELECT id, name FROM templates ORDER BY name COLLATE NOCASE ASC, id ASC",
+    );
+    return {
+      current,
+      past: past.map((row) => ({ id: row.id, year: Number(row.year), month: Number(row.month) })),
+      templates,
+    };
+  });
+}
+
+export function saveHabitTemplate(
+  db: SQLiteDatabase,
+  monthId: string,
+  rawName: string,
+): Promise<void> {
+  return withDbLock(() => saveHabitTemplateNow(db, monthId, rawName));
+}
+
+export function startMonthFromTemplate(
+  db: SQLiteDatabase,
+  templateId: string,
+  now = new Date(),
+): Promise<void> {
+  return withDbLock(() => startMonthFromTemplateNow(db, templateId, now));
+}
+
+async function saveHabitTemplateNow(db: SQLiteDatabase, monthIdValue: string, rawName: string): Promise<void> {
+  const parsed = assertMonthId(monthIdValue);
+  const name = templateName(rawName);
+  const habits = await db.getAllAsync<{
+    name: string;
+    sort_order: number;
+    entry: string;
+    blank_counts_as_miss: number;
+    reminder_hour: number | null;
+    reminder_minute: number | null;
+    tags: string | null;
+  }>(
+    `SELECT name, sort_order, entry, blank_counts_as_miss, reminder_hour, reminder_minute, tags
+     FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC`,
+    parsed.id,
+  );
+  if (!habits.length) throw new Error("Add a row before saving a list.");
+  const existing = await db.getFirstAsync<{ id: string }>(
+    "SELECT id FROM templates WHERE lower(name) = lower(?)",
+    name,
+  );
+  await db.withTransactionAsync(async () => {
+    const templateId = existing?.id ?? createId();
+    if (existing) {
+      await db.runAsync("UPDATE templates SET name = ? WHERE id = ?", name, templateId);
+      await db.runAsync("DELETE FROM template_rows WHERE template_id = ?", templateId);
+    } else {
+      await db.runAsync("INSERT INTO templates (id, name) VALUES (?, ?)", templateId, name);
+    }
+    for (const habit of habits) {
+      const entry = asEntry(habit.entry);
+      const reminder = entry === "timer" ? reminderPair(habit.reminder_hour, habit.reminder_minute) : null;
+      await db.runAsync(
+        `INSERT INTO template_rows (
+           id, template_id, name, sort_order, entry, blank_counts_as_miss,
+           reminder_hour, reminder_minute, tags
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        createId(),
+        templateId,
+        habit.name,
+        Number(habit.sort_order),
+        entry,
+        Number(habit.blank_counts_as_miss) === 0 ? 0 : 1,
+        reminder?.hour ?? null,
+        reminder?.minute ?? null,
+        JSON.stringify(parseStoredTags(habit.tags)),
+      );
+    }
+  });
+}
+
+async function startMonthFromTemplateNow(
+  db: SQLiteDatabase,
+  templateId: string,
+  now: Date,
+): Promise<void> {
+  if (!/^[A-Za-z0-9-]{8,80}$/.test(templateId)) {
+    throw new Error("That list is not stored.");
+  }
+  const template = await db.getFirstAsync<{ id: string }>("SELECT id FROM templates WHERE id = ?", templateId);
+  if (!template) throw new Error("That list is not stored.");
+  const current = currentMonth(now);
+  const month = await db.getFirstAsync<{ id: string }>("SELECT id FROM months WHERE id = ?", current.id);
+  if (!month) throw new Error("This month is not ready.");
+  const marks = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM day_records r
+     JOIN habits h ON h.id = r.habit_id
+     WHERE h.month_id = ?`,
+    current.id,
+  );
+  if (Number(marks?.n ?? 0) > 0) throw new Error("This month already has marks.");
+  const rows = await db.getAllAsync<{
+    name: string;
+    sort_order: number;
+    entry: string;
+    blank_counts_as_miss: number;
+    reminder_hour: number | null;
+    reminder_minute: number | null;
+    tags: string | null;
+  }>(
+    `SELECT name, sort_order, entry, blank_counts_as_miss, reminder_hour, reminder_minute, tags
+     FROM template_rows WHERE template_id = ? ORDER BY sort_order ASC, id ASC`,
+    templateId,
+  );
+  if (!rows.length) throw new Error("That list is empty.");
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("DELETE FROM habits WHERE month_id = ?", current.id);
+    for (const row of rows) {
+      const entry = entryForName(row.name, asEntry(row.entry));
+      const reminder = entry === "timer" ? reminderPair(row.reminder_hour, row.reminder_minute) : null;
+      await db.runAsync(
+        `INSERT INTO habits (
+           id, month_id, name, sort_order, entry, blank_counts_as_miss,
+           reminder_hour, reminder_minute, tags
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        createId(),
+        current.id,
+        row.name,
+        Number(row.sort_order),
+        entry,
+        Number(row.blank_counts_as_miss) === 0 ? 0 : 1,
+        reminder?.hour ?? null,
+        reminder?.minute ?? null,
+        JSON.stringify(parseStoredTags(row.tags)),
+      );
+    }
+  });
+}
+
+function templateName(raw: string): string {
+  const name = cleanName(raw);
+  if (!name) throw new Error("Give the template a name.");
+  if (name.length > NAME_MAX) throw new Error("Use 40 characters or fewer.");
+  return name;
+}
+
+function reminderPair(
+  hour: number | null,
+  minute: number | null,
+): { hour: number; minute: number } | null {
+  if (hour == null || minute == null) return null;
+  const h = Number(hour);
+  const m = Number(minute);
+  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return { hour: h, minute: m };
+}
+
+function assertMonthId(value: string): { id: string; year: number; month: number } {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) throw new Error("That month is not stored.");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month < 1 || month > 12 || year < 2000 || year > 9999) throw new Error("That month is not stored.");
+  return { id: monthId(year, month), year, month };
 }
 
 export async function wrapToday(

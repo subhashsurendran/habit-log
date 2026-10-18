@@ -1,8 +1,9 @@
 import { StatusBar } from "expo-status-bar";
-import { Component, type ReactNode } from "react";
+import { Component, useState, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
+import { DashboardScreen } from "./src/DashboardScreen";
 import { MonthScreen } from "./src/MonthScreen";
 
 type BoundaryState = { message: string | null };
@@ -31,12 +32,18 @@ class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
   }
 }
 
+function Shell() {
+  const [monthId, setMonthId] = useState<string | null>(null);
+  if (!monthId) return <DashboardScreen onOpenMonth={setMonthId} />;
+  return <MonthScreen monthId={monthId} onHome={() => setMonthId(null)} />;
+}
+
 export default function App() {
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
       <ScreenBoundary>
-        <MonthScreen />
+        <Shell />
       </ScreenBoundary>
     </View>
   );

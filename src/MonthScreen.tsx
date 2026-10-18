@@ -27,8 +27,8 @@ import {
   addHabit,
   clearCell,
   cycleTick,
-  loadMonth,
   moveHabit,
+  openMonth,
   openAppDatabase,
   removeHabit,
   renameHabit,
@@ -66,7 +66,7 @@ function rowHeight(_entry: Entry): number {
   return ROW_H;
 }
 
-export function MonthScreen() {
+export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () => void }) {
   const windowWidth = useWindowDimensions().width;
   const dbRef = useRef<SQLiteDatabase | null>(null);
   const queue = useRef(Promise.resolve());
@@ -89,7 +89,7 @@ export function MonthScreen() {
       .then(async (database) => {
         if (!live) return;
         dbRef.current = database;
-        setMonth(await loadMonth(database));
+        setMonth(await openMonth(database, monthId));
       })
       .catch((error: unknown) => {
         console.error(error);
@@ -99,7 +99,7 @@ export function MonthScreen() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [monthId]);
 
   const records = useMemo(() => {
     const map = new Map<string, DayRecord>();
@@ -112,7 +112,7 @@ export function MonthScreen() {
     if (!database || !month) return Promise.reject(new Error("The month is not open."));
     const run = queue.current.then(async () => {
       const result = await task(database);
-      setMonth(await loadMonth(database));
+      setMonth(await openMonth(database, month.id));
       setBanner(null);
       return result;
     });
@@ -173,6 +173,9 @@ export function MonthScreen() {
       <View style={styles.controls}>
         <Text style={styles.hint}>Tap a name to edit the row. Days scroll sideways.</Text>
         <View style={styles.actions}>
+          <Pressable style={styles.button} testID="home-button" onPress={onHome}>
+            <Text style={styles.buttonText}>Home</Text>
+          </Pressable>
           {month.locked ? null : (
             <Pressable style={styles.button} onPress={() => setAddOpen(true)} testID="add-row">
               <Text style={styles.buttonText}>Add row</Text>

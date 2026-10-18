@@ -12,7 +12,7 @@ npm install
 npm run web
 ```
 
-That opens the current month in the browser.
+That opens the home dashboard in the browser. This month, and any past month already stored, opens the task grid. A template saves the row list only. Marks stay on the month they were made.
 
 Expo 58 asks for Node 22. Node 20 can still start this project. If `npm run web` stops and asks for a newer Node, install Node 22 (`nvm install 22 && nvm use 22`) and run `npm install` again.
 
