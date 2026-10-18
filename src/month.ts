@@ -32,6 +32,17 @@ export function dateFor(year: number, month: number, day: number): string {
   return `${monthId(year, month)}-${String(day).padStart(2, "0")}`;
 }
 
+/** The next calendar day, or null on the last day of the month. */
+export function nextDateInSameMonth(date: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day >= daysInMonth(year, month)) return null;
+  return dateFor(year, month, day + 1);
+}
+
 export function monthTitle(year: number, month: number): string {
   return new Intl.DateTimeFormat("en-GB", {
     month: "long",

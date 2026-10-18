@@ -1,8 +1,8 @@
 import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
-import { checklistSummary, normalizeChecklist, parseStoredChecklist } from "./checklist";
+import { checklistSummary, mergeCarriedItems, normalizeChecklist, parseStoredChecklist, sameChecklist } from "./checklist";
 import { parseFollowUpHours } from "./followUp";
-import { dateFor, daysInMonth } from "./month";
+import { dateFor, daysInMonth, nextDateInSameMonth } from "./month";
 import { entryForName, validateName } from "./names";
 import { parseStoredTags, normalizeTags } from "./tags";
 import { formatClock12, parseTimeInput } from "./time";
@@ -54,6 +54,7 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
       reminder_hour INTEGER,
       reminder_minute INTEGER,
       tags TEXT NOT NULL DEFAULT '[]',
+      carry_forward INTEGER NOT NULL DEFAULT 1 CHECK (carry_forward IN (0, 1)),
       FOREIGN KEY (month_id) REFERENCES months (id),
       CHECK (follow_up_hours IS NULL OR (follow_up_hours BETWEEN 1 AND 48)),
       CHECK (
@@ -139,7 +140,13 @@ export async function wrapToday(
   now = new Date(),
 ): Promise<void> {
   if (now.getFullYear() !== year || now.getMonth() + 1 !== month) return;
-  await wrapOneDay(db, monthId, dateFor(year, month, now.getDate()));
+  const today = dateFor(year, month, now.getDate());
+  const next = nextDateInSameMonth(today);
+  await db.withTransactionAsync(async () => {
+    const wrapped = await wrapOneDay(db, monthId, today);
+    if (!wrapped || !next) return;
+    await carryOpenChecklist(db, monthId, [today], next);
+  });
 }
 
 export async function cycleTick(
@@ -388,6 +395,23 @@ export async function setBlankCountsAsMiss(
   if (result.changes === 0) throw new Error("That row is gone.");
 }
 
+export async function setCarryForward(
+  db: SQLiteDatabase,
+  monthId: string,
+  habitId: string,
+  carryForward: boolean,
+): Promise<void> {
+  const habit = await requireHabit(db, monthId, habitId);
+  if (habit.entry !== "checklist") throw new Error("Only a checklist can carry tasks forward.");
+  const result = await db.runAsync(
+    "UPDATE habits SET carry_forward = ? WHERE id = ? AND month_id = ?",
+    carryForward ? 1 : 0,
+    habitId,
+    monthId,
+  );
+  if (result.changes === 0) throw new Error("That row is gone.");
+}
+
 export async function setFollowUpHours(
   db: SQLiteDatabase,
   monthId: string,
@@ -543,21 +567,25 @@ async function wrapPastDays(
 ): Promise<void> {
   const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
   await db.withTransactionAsync(async () => {
+    const freshlyWrapped: string[] = [];
     for (let day = 1; day <= daysInMonth(year, month); day += 1) {
       const date = dateFor(year, month, day);
       if (date >= today) continue;
-      await wrapOneDay(db, monthId, date);
+      if (await wrapOneDay(db, monthId, date)) freshlyWrapped.push(date);
+    }
+    if (freshlyWrapped.length > 0) {
+      await carryOpenChecklist(db, monthId, freshlyWrapped, today);
     }
   });
 }
 
-async function wrapOneDay(db: SQLiteDatabase, monthId: string, date: string): Promise<void> {
+async function wrapOneDay(db: SQLiteDatabase, monthId: string, date: string): Promise<boolean> {
   const already = await db.getFirstAsync<{ date: string }>(
     "SELECT date FROM wrapped_days WHERE month_id = ? AND date = ?",
     monthId,
     date,
   );
-  if (already) return;
+  if (already) return false;
   const habits = await db.getAllAsync<{ id: string; blank_counts_as_miss: number }>(
     "SELECT id, blank_counts_as_miss FROM habits WHERE month_id = ?",
     monthId,
@@ -580,6 +608,50 @@ async function wrapOneDay(db: SQLiteDatabase, monthId: string, date: string): Pr
     );
   }
   await db.runAsync("INSERT INTO wrapped_days (month_id, date) VALUES (?, ?)", monthId, date);
+  return true;
+}
+
+async function carryOpenChecklist(
+  db: SQLiteDatabase,
+  monthId: string,
+  sourceDates: readonly string[],
+  destination: string,
+): Promise<void> {
+  if (!sourceDates.length) return;
+  const habits = await db.getAllAsync<{ id: string }>(
+    `SELECT id FROM habits
+     WHERE month_id = ? AND entry = 'checklist' AND carry_forward != 0
+     ORDER BY sort_order ASC, id ASC`,
+    monthId,
+  );
+  const placeholders = sourceDates.map(() => "?").join(", ");
+  for (const habit of habits) {
+    const rows = await db.getAllAsync<{ date: string; checklist: string | null }>(
+      `SELECT date, checklist FROM day_records
+       WHERE habit_id = ? AND date IN (${placeholders})
+       ORDER BY date ASC`,
+      habit.id,
+      ...sourceDates,
+    );
+    let incoming: { text: string; done: boolean }[] = [];
+    for (const row of rows) {
+      incoming = mergeCarriedItems(incoming, parseStoredChecklist(row.checklist));
+    }
+    if (!incoming.length) continue;
+    const existingRow = await db.getFirstAsync<{ checklist: string | null }>(
+      "SELECT checklist FROM day_records WHERE habit_id = ? AND date = ?",
+      habit.id,
+      destination,
+    );
+    const existing = parseStoredChecklist(existingRow?.checklist ?? null);
+    const merged = mergeCarriedItems(existing, incoming);
+    if (!merged.length || sameChecklist(existing, merged)) continue;
+    const parts = destination.split("-");
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+    await saveChecklist(db, monthId, habit.id, year, month, day, merged);
+  }
 }
 
 async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
@@ -601,9 +673,10 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
     reminder_hour: number | null;
     reminder_minute: number | null;
     tags: string | null;
+    carry_forward: number | null;
   }>(
     `SELECT id, name, sort_order, entry, blank_counts_as_miss, follow_up_hours,
-            reminder_hour, reminder_minute, tags
+            reminder_hour, reminder_minute, tags, carry_forward
      FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC`,
     id,
   );
@@ -642,6 +715,7 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
       reminderHour: row.reminder_hour == null ? null : Number(row.reminder_hour),
       reminderMinute: row.reminder_minute == null ? null : Number(row.reminder_minute),
       tags: parseStoredTags(row.tags),
+      carryForward: row.carry_forward == null || Number(row.carry_forward) !== 0,
     })),
     records: recordRows.flatMap((row) => {
       const source = asSource(row.source);
@@ -698,6 +772,11 @@ async function ensureHabitColumns(db: SQLiteDatabase): Promise<void> {
   if (!columns.has("tags")) {
     await db.execAsync("ALTER TABLE habits ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!columns.has("carry_forward")) {
+    await db.execAsync(
+      "ALTER TABLE habits ADD COLUMN carry_forward INTEGER NOT NULL DEFAULT 1 CHECK (carry_forward IN (0, 1))",
+    );
+  }
 }
 
 async function ensureDayColumns(db: SQLiteDatabase): Promise<void> {
@@ -745,6 +824,7 @@ async function ensureTimerEntry(db: SQLiteDatabase): Promise<void> {
         reminder_hour INTEGER,
         reminder_minute INTEGER,
         tags TEXT NOT NULL DEFAULT '[]',
+        carry_forward INTEGER NOT NULL DEFAULT 1 CHECK (carry_forward IN (0, 1)),
         FOREIGN KEY (month_id) REFERENCES months (id),
         CHECK (follow_up_hours IS NULL OR (follow_up_hours BETWEEN 1 AND 48)),
         CHECK (
@@ -754,12 +834,12 @@ async function ensureTimerEntry(db: SQLiteDatabase): Promise<void> {
       );
       INSERT INTO habits_next (
         id, month_id, name, sort_order, entry, blank_counts_as_miss,
-        follow_up_hours, reminder_hour, reminder_minute, tags
+        follow_up_hours, reminder_hour, reminder_minute, tags, carry_forward
       )
       SELECT id, month_id, name, sort_order,
              CASE entry WHEN 'time' THEN 'timer' ELSE entry END,
              blank_counts_as_miss, follow_up_hours, reminder_hour, reminder_minute,
-             COALESCE(tags, '[]')
+             COALESCE(tags, '[]'), COALESCE(carry_forward, 1)
       FROM habits;
       DROP TABLE habits;
       ALTER TABLE habits_next RENAME TO habits;
@@ -789,6 +869,7 @@ async function ensureChecklistEntry(db: SQLiteDatabase): Promise<void> {
         reminder_hour INTEGER,
         reminder_minute INTEGER,
         tags TEXT NOT NULL DEFAULT '[]',
+        carry_forward INTEGER NOT NULL DEFAULT 1 CHECK (carry_forward IN (0, 1)),
         FOREIGN KEY (month_id) REFERENCES months (id),
         CHECK (follow_up_hours IS NULL OR (follow_up_hours BETWEEN 1 AND 48)),
         CHECK (
@@ -798,12 +879,12 @@ async function ensureChecklistEntry(db: SQLiteDatabase): Promise<void> {
       );
       INSERT INTO habits_next (
         id, month_id, name, sort_order, entry, blank_counts_as_miss,
-        follow_up_hours, reminder_hour, reminder_minute, tags
+        follow_up_hours, reminder_hour, reminder_minute, tags, carry_forward
       )
       SELECT id, month_id, name, sort_order,
              CASE entry WHEN 'time' THEN 'timer' ELSE entry END,
              blank_counts_as_miss, follow_up_hours, reminder_hour, reminder_minute,
-             COALESCE(tags, '[]')
+             COALESCE(tags, '[]'), COALESCE(carry_forward, 1)
       FROM habits;
       DROP TABLE habits;
       ALTER TABLE habits_next RENAME TO habits;
@@ -835,9 +916,10 @@ async function requireHabit(db: SQLiteDatabase, monthId: string, habitId: string
     reminder_hour: number | null;
     reminder_minute: number | null;
     tags: string | null;
+    carry_forward: number | null;
   }>(
     `SELECT id, name, sort_order, entry, blank_counts_as_miss, follow_up_hours,
-            reminder_hour, reminder_minute, tags
+            reminder_hour, reminder_minute, tags, carry_forward
      FROM habits WHERE id = ? AND month_id = ?`,
     habitId,
     monthId,
@@ -853,6 +935,7 @@ async function requireHabit(db: SQLiteDatabase, monthId: string, habitId: string
     reminderHour: row.reminder_hour == null ? null : Number(row.reminder_hour),
     reminderMinute: row.reminder_minute == null ? null : Number(row.reminder_minute),
     tags: parseStoredTags(row.tags),
+    carryForward: row.carry_forward == null || Number(row.carry_forward) !== 0,
   };
 }
 

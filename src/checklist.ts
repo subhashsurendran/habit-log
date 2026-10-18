@@ -38,6 +38,32 @@ export function checklistSummary(items: readonly CheckItem[]): string {
   return `${done}/${items.length}`;
 }
 
+export function sameChecklist(left: readonly CheckItem[], right: readonly CheckItem[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item.text === right[index]?.text && item.done === right[index]?.done);
+}
+
+/**
+ * Copies unfinished lines onto the next day.
+ * Lines already there keep their own done state. Finished lines stay behind.
+ * The next day still holds at most three lines.
+ */
+export function mergeCarriedItems(
+  destination: readonly { text?: string; done?: boolean }[],
+  incoming: readonly { text?: string; done?: boolean }[],
+): CheckItem[] {
+  const next = normalizeChecklist(destination);
+  const seen = new Set(next.map((item) => item.text.toLowerCase()));
+  for (const item of normalizeChecklist(incoming)) {
+    if (item.done || next.length >= CHECKLIST_LIMIT) continue;
+    const key = item.text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push({ text: item.text, done: false });
+  }
+  return next;
+}
+
 /** Three editor lines. Empty lines stay so the user can type into them. */
 export function padChecklist(items: readonly CheckItem[]): CheckItem[] {
   const next = items.slice(0, CHECKLIST_LIMIT).map((item) => ({ text: item.text, done: item.done }));

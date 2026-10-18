@@ -26,6 +26,7 @@ import {
   saveChecklist,
   saveJournal,
   setBlankCountsAsMiss,
+  setCarryForward,
   setFollowUpHours,
   setHabitTags,
   setLocked,
@@ -135,6 +136,9 @@ export function MonthScreen() {
       ? today.getDate()
       : null;
   const days = Array.from({ length: daysInMonth(month.year, month.month) }, (_, index) => index + 1);
+  const editingHabit = renameTarget
+    ? (month.habits.find((habit) => habit.id === renameTarget.id) ?? null)
+    : null;
   const gridWidth = Math.max(220, windowWidth - LABEL_W);
   const bodyHeight = HEADER_H + month.habits.reduce((sum, habit) => sum + rowHeight(habit.entry), 0);
 
@@ -314,47 +318,52 @@ export function MonthScreen() {
           }}
         />
       ) : null}
-      {renameTarget ? (
+      {editingHabit ? (
         <RenameDialog
-          habit={renameTarget}
-          isFirst={month.habits[0]?.id === renameTarget.id}
-          isLast={month.habits[month.habits.length - 1]?.id === renameTarget.id}
+          habit={editingHabit}
+          isFirst={month.habits[0]?.id === editingHabit.id}
+          isLast={month.habits[month.habits.length - 1]?.id === editingHabit.id}
           onClose={() => setRenameTarget(null)}
           onSave={async (name) => {
             const changed = await enqueue((database) =>
-              renameHabit(database, month.id, renameTarget.id, name),
+              renameHabit(database, month.id, editingHabit.id, name),
             );
-            if (changed.entryChanged) await cancelHabitNotifications(renameTarget.id);
+            if (changed.entryChanged) await cancelHabitNotifications(editingHabit.id);
             setRenameTarget(null);
           }}
           onRemove={async () => {
-            await enqueue((database) => removeHabit(database, month.id, renameTarget.id));
-            await cancelHabitNotifications(renameTarget.id);
+            await enqueue((database) => removeHabit(database, month.id, editingHabit.id));
+            await cancelHabitNotifications(editingHabit.id);
             setRenameTarget(null);
           }}
           onToggleMiss={(value) => {
             void enqueue((database) =>
-              setBlankCountsAsMiss(database, month.id, renameTarget.id, value),
+              setBlankCountsAsMiss(database, month.id, editingHabit.id, value),
+            ).catch(() => undefined);
+          }}
+          onCarry={(value) => {
+            void enqueue((database) =>
+              setCarryForward(database, month.id, editingHabit.id, value),
             ).catch(() => undefined);
           }}
           onTags={(tags) => {
-            void enqueue((database) => setHabitTags(database, month.id, renameTarget.id, tags)).catch(
+            void enqueue((database) => setHabitTags(database, month.id, editingHabit.id, tags)).catch(
               () => undefined,
             );
           }}
           onFollowUp={(raw) => {
             void enqueue(async (database) => {
-              await setFollowUpHours(database, month.id, renameTarget.id, raw);
-              await cancelHabitNotifications(renameTarget.id);
+              await setFollowUpHours(database, month.id, editingHabit.id, raw);
+              await cancelHabitNotifications(editingHabit.id);
             }).catch(() => undefined);
           }}
           onRemind={() => {
-            const habit = renameTarget;
+            const habit = editingHabit;
             setRenameTarget(null);
             setTimeEdit({ mode: "reminder", habit });
           }}
           onMove={(direction) => {
-            void enqueue((database) => moveHabit(database, month.id, renameTarget.id, direction)).catch(
+            void enqueue((database) => moveHabit(database, month.id, editingHabit.id, direction)).catch(
               () => undefined,
             );
           }}
@@ -735,7 +744,7 @@ function AddDialog({
       </View>
       <Text style={styles.hint}>
         {entry === "checklist"
-          ? "A checklist holds up to three tasks for that day. Name it yourself, for example Most Important Tasks of the Day."
+          ? "A checklist holds up to three tasks for that day. Open tasks copy to the next day when you wrap up. Turn that off on the row if you want a fresh list. Name it yourself, for example Most Important Tasks of the Day."
           : reserved
             ? "Wake up and Sleep Time are timer rows."
             : "Medicine adds the tag tablets. Supplement adds the tag fitness. The row name stays what you type."}
@@ -780,6 +789,7 @@ function RenameDialog({
   onSave,
   onRemove,
   onToggleMiss,
+  onCarry,
   onTags,
   onFollowUp,
   onRemind,
@@ -792,6 +802,7 @@ function RenameDialog({
   onSave: (name: string) => Promise<void>;
   onRemove: () => Promise<void>;
   onToggleMiss: (value: boolean) => void;
+  onCarry: (value: boolean) => void;
   onTags: (tags: string[]) => void;
   onFollowUp: (raw: string) => void;
   onRemind: () => void;
@@ -839,7 +850,7 @@ function RenameDialog({
               <Text style={styles.buttonText}>Remove</Text>
             </Pressable>
           )}
-          <Pressable style={styles.button} onPress={onClose}>
+          <Pressable style={styles.button} testID="row-cancel" onPress={onClose}>
             <Text style={styles.buttonText}>Cancel</Text>
           </Pressable>
         </View>
@@ -886,6 +897,13 @@ function RenameDialog({
           {habit.blankCountsAsMiss ? "[x]" : "[ ]"} Empty day counts as a miss
         </Text>
       </Pressable>
+      {habit.entry === "checklist" ? (
+        <Pressable testID={`carry-flag-${slug}`} onPress={() => onCarry(!habit.carryForward)}>
+          <Text style={styles.missFlag}>
+            {habit.carryForward ? "[x]" : "[ ]"} Carry unfinished tasks to the next day
+          </Text>
+        </Pressable>
+      ) : null}
       {habit.entry === "journal" || habit.entry === "checklist" ? null : (
         <View>
           <Text style={styles.fieldLabel}>Follow-up after a mark</Text>
@@ -1159,7 +1177,12 @@ function ChecklistDialog({
         </View>
       }
     >
-      <Text style={styles.hint}>Up to three tasks for this day. The cell shows how many are done, such as 2/3.</Text>
+      <Text style={styles.hint}>
+        Up to three tasks for this day. The cell shows how many are done, such as 2/3.
+        {habit.carryForward
+          ? " Tasks still open are copied to the next day when this day is wrapped. Finished tasks stay here."
+          : ""}
+      </Text>
       {lines.map((line, index) => (
         <View key={index} style={styles.checkRow}>
           <Pressable

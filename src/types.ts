@@ -19,6 +19,8 @@ export type Habit = {
   reminderHour: number | null;
   reminderMinute: number | null;
   tags: string[];
+  /** Checklist only. When on, unfinished lines are copied to the next day at wrap. */
+  carryForward: boolean;
 };
 
 export type DayRecord = {
