@@ -6,9 +6,19 @@ export function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
 }
 
-/** Sunday is 0 and Saturday is 6, matching the local calendar. */
+const WEEKDAY_LABELS = ["Su", "M", "T", "W", "Th", "F", "S"] as const;
+
+export function weekdayIndex(year: number, month: number, day: number): number {
+  return new Date(year, month - 1, day).getDay();
+}
+
+/** Sunday is Su and Thursday is Th, so those days are not both S or both T. */
+export function weekdayLabel(year: number, month: number, day: number): string {
+  return WEEKDAY_LABELS[weekdayIndex(year, month, day)] ?? "";
+}
+
 export function isWeekend(year: number, month: number, day: number): boolean {
-  const weekday = new Date(year, month - 1, day).getDay();
+  const weekday = weekdayIndex(year, month, day);
   return weekday === 0 || weekday === 6;
 }
 

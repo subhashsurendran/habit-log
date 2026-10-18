@@ -34,7 +34,7 @@ import {
 } from "./db";
 import { errorText } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
-import { dateFor, daysInMonth, isWeekend, monthTitle } from "./month";
+import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./month";
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
@@ -45,7 +45,7 @@ import type { DayRecord, Entry, Habit, MonthState } from "./types";
 
 const LABEL_W = 168;
 const DAY_W = 64;
-const HEADER_H = 36;
+const HEADER_H = 46;
 const ROW_H = 56;
 
 function rowHeight(_entry: Entry): number {
@@ -216,6 +216,15 @@ export function MonthScreen() {
                       todayDay === day && styles.today,
                     ]}
                   >
+                    <Text
+                      style={[
+                        styles.weekdayText,
+                        weekend && styles.weekendText,
+                        todayDay === day && styles.todayText,
+                      ]}
+                    >
+                      {weekdayLabel(month.year, month.month, day)}
+                    </Text>
                     <Text
                       style={[
                         styles.dayText,
@@ -1226,7 +1235,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#efe8d8",
     borderTopWidth: 1,
   },
-  dayText: { color: "#1c2834", fontSize: 13, fontWeight: "600" },
+  weekdayText: { color: "#5c6570", fontSize: 10, fontWeight: "600", lineHeight: 12 },
+  dayText: { color: "#1c2834", fontSize: 13, fontWeight: "600", lineHeight: 16 },
   cell: {
     width: DAY_W,
     alignItems: "center",
