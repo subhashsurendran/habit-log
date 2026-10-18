@@ -13,7 +13,16 @@ import {
 } from "react-native";
 import type { SQLiteDatabase } from "expo-sqlite";
 
-import { CHECK_ITEM_MAX, checklistSummary, padChecklist } from "./checklist";
+import {
+  CHECK_ITEM_MAX,
+  CHECKLIST_DAY_NUDGE,
+  CHECKLIST_LIMIT,
+  CHECKLIST_MAX,
+  checklistSummary,
+  dayTaskTotal,
+  normalizeChecklist,
+  padChecklist,
+} from "./checklist";
 import {
   addHabit,
   clearCell,
@@ -504,6 +513,12 @@ export function MonthScreen() {
               `${checklistEdit.habit.id}|${dateFor(month.year, month.month, checklistEdit.day)}`,
             )?.checklist ?? []
           }
+          othersOnDay={otherChecklistItems(
+            month.habits,
+            records,
+            dateFor(month.year, month.month, checklistEdit.day),
+            checklistEdit.habit.id,
+          )}
           onClose={() => setChecklistEdit(null)}
           onSave={async (items) => {
             await enqueue((database) =>
@@ -744,7 +759,7 @@ function AddDialog({
       </View>
       <Text style={styles.hint}>
         {entry === "checklist"
-          ? "A checklist holds up to three tasks for that day. Open tasks copy to the next day when you wrap up. Turn that off on the row if you want a fresh list. Name it yourself, for example Most Important Tasks of the Day."
+          ? "A checklist starts with three tasks. Adding a fourth asks if you can finish them today. More than 12 tasks on the day asks again. Name it yourself, for example Most Important Tasks of the Day."
           : reserved
             ? "Wake up and Sleep Time are timer rows."
             : "Medicine adds the tag tablets. Supplement adds the tag fitness. The row name stays what you type."}
@@ -1136,24 +1151,82 @@ function JournalDialog({
   );
 }
 
+function otherChecklistItems(
+  habits: readonly Habit[],
+  records: ReadonlyMap<string, DayRecord>,
+  date: string,
+  exceptHabitId: string,
+): number {
+  let total = 0;
+  for (const habit of habits) {
+    if (habit.entry !== "checklist" || habit.id === exceptHabitId) continue;
+    total += records.get(`${habit.id}|${date}`)?.checklist.length ?? 0;
+  }
+  return total;
+}
+
 function ChecklistDialog({
   habit,
   day,
   items,
+  othersOnDay,
   onClose,
   onSave,
 }: {
   habit: Habit;
   day: number;
   items: CheckItem[];
+  othersOnDay: number;
   onClose: () => void;
   onSave: (items: CheckItem[]) => Promise<void>;
 }) {
   const [lines, setLines] = useState<CheckItem[]>(() => padChecklist(items));
+  const [acceptedOver3, setAcceptedOver3] = useState(false);
+  const [acceptedOver12, setAcceptedOver12] = useState(false);
+  const [ask, setAsk] = useState<null | "over-3" | "over-12">(null);
   const [message, setMessage] = useState<string | null>(null);
+  const filled = normalizeChecklist(lines).length;
+  const dayTotal = dayTaskTotal(othersOnDay, lines);
+  const hasEmptyLine = lines.some((line) => line.text.trim().length === 0);
 
   function setLine(index: number, patch: Partial<CheckItem>) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  }
+
+  function addLine() {
+    if (lines.length >= CHECKLIST_MAX) {
+      setMessage("This list holds 24 tasks.");
+      return;
+    }
+    if (filled >= CHECKLIST_LIMIT && !acceptedOver3) {
+      setAsk("over-3");
+      setMessage(null);
+      return;
+    }
+    setLines((current) => [...current, { text: "", done: false }]);
+    setAsk(null);
+    setMessage(null);
+  }
+
+  function confirmOver3() {
+    setAcceptedOver3(true);
+    setAsk(null);
+    setLines((current) => (current.length >= CHECKLIST_MAX ? current : [...current, { text: "", done: false }]));
+  }
+
+  function save() {
+    if (dayTotal > CHECKLIST_DAY_NUDGE && !acceptedOver12) {
+      setAsk("over-12");
+      setMessage(null);
+      return;
+    }
+    void onSave(lines).catch((error: unknown) => setMessage(errorText(error)));
+  }
+
+  function confirmOver12() {
+    setAcceptedOver12(true);
+    setAsk(null);
+    void onSave(lines).catch((error: unknown) => setMessage(errorText(error)));
   }
 
   return (
@@ -1162,27 +1235,53 @@ function ChecklistDialog({
       onClose={onClose}
       footer={
         <View style={styles.actions}>
-          <Pressable
-            style={[styles.button, styles.buttonOn]}
-            testID="checklist-save"
-            onPress={() => {
-              void onSave(lines).catch((error: unknown) => setMessage(errorText(error)));
-            }}
-          >
-            <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
-          </Pressable>
-          <Pressable style={styles.button} onPress={onClose}>
-            <Text style={styles.buttonText}>Cancel</Text>
-          </Pressable>
+          {ask === "over-3" ? (
+            <>
+              <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-3-yes" onPress={confirmOver3}>
+                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, add another</Text>
+              </Pressable>
+              <Pressable style={styles.button} testID="confirm-over-3-no" onPress={() => setAsk(null)}>
+                <Text style={styles.buttonText}>Keep 3</Text>
+              </Pressable>
+            </>
+          ) : ask === "over-12" ? (
+            <>
+              <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-12-yes" onPress={confirmOver12}>
+                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, keep them</Text>
+              </Pressable>
+              <Pressable style={styles.button} testID="confirm-over-12-no" onPress={() => setAsk(null)}>
+                <Text style={styles.buttonText}>Not now</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Pressable style={[styles.button, styles.buttonOn]} testID="checklist-save" onPress={save}>
+                <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+              </Pressable>
+              <Pressable style={styles.button} onPress={onClose}>
+                <Text style={styles.buttonText}>Cancel</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       }
     >
       <Text style={styles.hint}>
-        Up to three tasks for this day. The cell shows how many are done, such as 2/3.
+        Three tasks is a comfortable day. The cell shows how many are done, such as 2/3.
         {habit.carryForward
           ? " Tasks still open are copied to the next day when this day is wrapped. Finished tasks stay here."
           : ""}
       </Text>
+      {ask === "over-3" ? (
+        <Text style={styles.ask} testID="ask-over-3">
+          You already have 3 tasks. Can you complete all of them today?
+        </Text>
+      ) : null}
+      {ask === "over-12" ? (
+        <Text style={styles.ask} testID="ask-over-12">
+          This day has {dayTotal} tasks. Can you finish this many in a day?
+        </Text>
+      ) : null}
       {lines.map((line, index) => (
         <View key={index} style={styles.checkRow}>
           <Pressable
@@ -1203,6 +1302,14 @@ function ChecklistDialog({
           />
         </View>
       ))}
+      {ask || hasEmptyLine || lines.length >= CHECKLIST_MAX ? null : (
+        <View style={styles.actions}>
+          <Pressable style={styles.button} testID="add-checklist-item" onPress={addLine}>
+            <Text style={styles.buttonText}>Add a task</Text>
+          </Pressable>
+        </View>
+      )}
+      {lines.length >= CHECKLIST_MAX ? <Text style={styles.hint}>This list holds 24 tasks.</Text> : null}
       {message ? <Text style={styles.banner}>{message}</Text> : null}
     </Dialog>
   );
@@ -1298,6 +1405,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: "700", color: "#1c2834" },
   month: { marginTop: 2, fontSize: 16, color: "#23415c", fontWeight: "600" },
   hint: { marginTop: 6, color: "#5c6570", fontSize: 13, lineHeight: 18 },
+  ask: { marginTop: 12, color: "#1c2834", fontSize: 16, lineHeight: 22, fontWeight: "600" },
   banner: { marginTop: 8, color: "#8d2f2f", fontSize: 14 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
   button: {
