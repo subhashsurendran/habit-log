@@ -34,7 +34,7 @@ class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
 export default function App() {
   return (
     <View style={styles.root}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <ScreenBoundary>
         <MonthScreen />
       </ScreenBoundary>
@@ -45,17 +45,17 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#FFF4CC",
+    backgroundColor: "#16121C",
   },
   fallback: {
     flex: 1,
-    backgroundColor: "#FFF4CC",
+    backgroundColor: "#16121C",
     padding: 24,
     justifyContent: "center",
   },
   body: {
     marginTop: 12,
     fontSize: 16,
-    color: "#3D4F66",
+    color: "#E7DCF8",
   },
 });

@@ -1,19 +1,27 @@
 import { Image, StyleSheet, Text, View } from "react-native";
 
-export const TAGLINE = "Building long-term habits, one check at a time.";
+export const TAGLINE = "Small checks. Lasting habits.";
 
 export function BrandLockup() {
   return (
     <View style={styles.row}>
-      <Image
-        source={require("../assets/mydtc-logo.png")}
-        style={styles.logo}
-        accessibilityLabel="MyDTC logo. A checklist being checked, then checks building into a habit."
-        testID="mydtc-logo"
-      />
+      <View style={styles.logoBezel}>
+        <Image
+          source={require("../assets/mydtc-logo.png")}
+          style={styles.logo}
+          accessibilityLabel="MyDTC logo. A checklist being checked, then checks building into a habit."
+          testID="mydtc-logo"
+        />
+      </View>
       <View style={styles.copy}>
-        <Text style={styles.title}>MyDTC</Text>
-        <View style={styles.rule} />
+        <Text style={styles.wordmark} testID="mydtc-wordmark">
+          <Text style={styles.my} testID="mydtc-my">
+            My
+          </Text>
+          <Text style={styles.dtc} testID="mydtc-dtc">
+            DTC
+          </Text>
+        </Text>
         <Text style={styles.tagline}>{TAGLINE}</Text>
       </View>
     </View>
@@ -22,16 +30,29 @@ export function BrandLockup() {
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
-  logo: { width: 72, height: 72, borderRadius: 16 },
+  logoBezel: {
+    padding: 2,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#F6EEFF",
+    backgroundColor: "#D8C4FF",
+  },
+  logo: { width: 68, height: 68, borderRadius: 15 },
   copy: { flex: 1 },
-  title: { fontSize: 28, fontWeight: "800", color: "#102A43", letterSpacing: -0.4 },
-  rule: { width: 36, height: 3, borderRadius: 2, backgroundColor: "#FF5A45", marginTop: 6 },
+  wordmark: { fontSize: 28, fontWeight: "800", letterSpacing: -0.4 },
+  my: { color: "#3DDC97" },
+  dtc: {
+    color: "#FFE56A",
+    textShadowColor: "rgba(255, 248, 210, 0.95)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+  },
   tagline: {
-    marginTop: 6,
-    color: "#0F6E56",
+    marginTop: 4,
+    color: "#E7DCF8",
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "500",
-    letterSpacing: 0.15,
+    letterSpacing: 0.2,
   },
 });

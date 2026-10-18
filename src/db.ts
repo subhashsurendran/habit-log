@@ -18,18 +18,50 @@ const SEED_ROWS: { suffix: string; name: string; entry: Entry }[] = [
 ];
 
 let opening: Promise<SQLiteDatabase> | null = null;
+let dbChain: Promise<unknown> = Promise.resolve();
+
+function withDbLock<T>(task: () => Promise<T>): Promise<T> {
+  const run = dbChain.then(task, task);
+  dbChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * A refresh can still hold the previous database handle. Opening again
+ * then fails until that handle is released, so try a few times.
+ */
+async function openPreparedDatabase(): Promise<SQLiteDatabase> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    let db: SQLiteDatabase | null = null;
+    try {
+      db = await openDatabaseAsync("habit-log.db");
+      await prepareDatabase(db);
+      return db;
+    } catch (error) {
+      last = error;
+      if (db) await db.closeAsync().catch(() => undefined);
+      await wait(200 * (attempt + 1));
+    }
+  }
+  throw last;
+}
 
 export function openAppDatabase(): Promise<SQLiteDatabase> {
   if (!opening) {
-    opening = openDatabaseAsync("habit-log.db")
-      .then(async (db) => {
-        await prepareDatabase(db);
-        return db;
-      })
-      .catch((error: unknown) => {
-        opening = null;
-        throw error;
-      });
+    opening = openPreparedDatabase().catch((error: unknown) => {
+      opening = null;
+      throw error;
+    });
   }
   return opening;
 }
@@ -98,7 +130,11 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
   await ensureChecklistEntry(db);
 }
 
-export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<MonthState> {
+export function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<MonthState> {
+  return withDbLock(() => loadMonthNow(db, now));
+}
+
+async function loadMonthNow(db: SQLiteDatabase, now = new Date()): Promise<MonthState> {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   const id = `${year}-${String(month).padStart(2, "0")}`;
@@ -870,6 +906,7 @@ async function ensureTimerEntry(db: SQLiteDatabase): Promise<void> {
   }
   await db.execAsync("PRAGMA foreign_keys = OFF");
   try {
+    await db.execAsync("DROP TABLE IF EXISTS habits_next");
     await db.execAsync(`
       CREATE TABLE habits_next (
         id TEXT PRIMARY KEY,
@@ -915,6 +952,7 @@ async function ensureChecklistEntry(db: SQLiteDatabase): Promise<void> {
   if (!row?.sql || row.sql.includes("'checklist'")) return;
   await db.execAsync("PRAGMA foreign_keys = OFF");
   try {
+    await db.execAsync("DROP TABLE IF EXISTS habits_next");
     await db.execAsync(`
       CREATE TABLE habits_next (
         id TEXT PRIMARY KEY,
