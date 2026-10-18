@@ -185,7 +185,7 @@ export function MonthScreen() {
         <View style={[styles.gridRow, { width: windowWidth }]}>
           <View style={{ width: LABEL_W }}>
             <View style={[styles.corner, styles.line]}>
-              <Text style={styles.cornerText}>Habit</Text>
+              <Text style={styles.cornerText}>Task</Text>
             </View>
             {month.habits.map((habit) => (
               <NameCell
