@@ -3,7 +3,7 @@ import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 import { dateFor } from "./month";
 import { entryForName, validateName } from "./names";
 import { parseTimeInput } from "./time";
-import type { DayRecord, Entry, Habit, MonthState } from "./types";
+import type { DayRecord, Entry, Habit, MarkSource, MonthState } from "./types";
 
 const DAY_COLUMNS = 31;
 
@@ -45,13 +45,14 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
       name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 40),
       sort_order INTEGER NOT NULL,
       entry TEXT NOT NULL CHECK (entry IN ('tick', 'time')),
+      blank_counts_as_miss INTEGER NOT NULL DEFAULT 1 CHECK (blank_counts_as_miss IN (0, 1)),
       FOREIGN KEY (month_id) REFERENCES months (id)
     );
     CREATE TABLE IF NOT EXISTS day_records (
       habit_id TEXT NOT NULL,
       date TEXT NOT NULL CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
       display TEXT NOT NULL CHECK (length(display) > 0 AND length(display) <= 16),
-      source TEXT NOT NULL CHECK (source = 'manual'),
+      source TEXT NOT NULL CHECK (source IN ('manual', 'alarm')),
       clock_hour INTEGER,
       clock_minute INTEGER,
       span_start TEXT,
@@ -66,6 +67,8 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
     );
     CREATE INDEX IF NOT EXISTS habits_month_order ON habits (month_id, sort_order);
   `);
+  await ensureBlankCountsAsMiss(db);
+  await ensureAlarmSource(db);
 }
 
 export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<MonthState> {
@@ -88,7 +91,7 @@ export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<M
     for (let index = 0; index < SEED_ROWS.length; index += 1) {
       const seed = SEED_ROWS[index];
       await db.runAsync(
-        "INSERT INTO habits (id, month_id, name, sort_order, entry) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO habits (id, month_id, name, sort_order, entry, blank_counts_as_miss) VALUES (?, ?, ?, ?, ?, 1)",
         `${id}-${seed.suffix}`,
         id,
         seed.name,
@@ -111,8 +114,9 @@ export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<M
     name: string;
     sort_order: number;
     entry: string;
+    blank_counts_as_miss: number;
   }>(
-    "SELECT id, name, sort_order, entry FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC",
+    "SELECT id, name, sort_order, entry, blank_counts_as_miss FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC",
     id,
   );
   const recordRows = await db.getAllAsync<{
@@ -140,14 +144,16 @@ export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<M
       name: row.name,
       sortOrder: Number(row.sort_order),
       entry: asEntry(row.entry),
+      blankCountsAsMiss: Number(row.blank_counts_as_miss) !== 0,
     })),
     records: recordRows.flatMap((row) => {
-      if (row.source !== "manual") return [];
+      const source = asSource(row.source);
+      if (!source) return [];
       const record: DayRecord = {
         habitId: row.habit_id,
         date: row.date,
         display: row.display,
-        source: "manual",
+        source,
         clockHour: row.clock_hour == null ? null : Number(row.clock_hour),
         clockMinute: row.clock_minute == null ? null : Number(row.clock_minute),
       };
@@ -225,9 +231,11 @@ export async function addHabit(
   db: SQLiteDatabase,
   monthId: string,
   rawName: string,
+  chosen: Entry,
 ): Promise<void> {
   const name = validateName(rawName);
-  const entry = entryForName(name, "tick");
+  if (chosen !== "tick" && chosen !== "time") throw new Error("Choose tick or time.");
+  const entry = entryForName(name, chosen);
   await assertUnlocked(db, monthId);
   const max = await db.getFirstAsync<{ m: number | string | null }>(
     "SELECT MAX(sort_order) AS m FROM habits WHERE month_id = ?",
@@ -235,13 +243,29 @@ export async function addHabit(
   );
   const sortOrder = Number(max?.m ?? -1) + 1;
   await db.runAsync(
-    "INSERT INTO habits (id, month_id, name, sort_order, entry) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO habits (id, month_id, name, sort_order, entry, blank_counts_as_miss) VALUES (?, ?, ?, ?, ?, 1)",
     createId(),
     monthId,
     name,
     sortOrder,
     entry,
   );
+}
+
+export async function setBlankCountsAsMiss(
+  db: SQLiteDatabase,
+  monthId: string,
+  habitId: string,
+  blankCountsAsMiss: boolean,
+): Promise<void> {
+  await requireHabit(db, monthId, habitId);
+  const result = await db.runAsync(
+    "UPDATE habits SET blank_counts_as_miss = ? WHERE id = ? AND month_id = ?",
+    blankCountsAsMiss ? 1 : 0,
+    habitId,
+    monthId,
+  );
+  if (result.changes === 0) throw new Error("That row is gone.");
 }
 
 export async function renameHabit(
@@ -333,6 +357,52 @@ function asEntry(value: string): Entry {
   throw new Error("That row is not usable.");
 }
 
+function asSource(value: string): MarkSource | null {
+  if (value === "manual" || value === "alarm") return value;
+  return null;
+}
+
+async function ensureBlankCountsAsMiss(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(habits)");
+  if (columns.some((column) => column.name === "blank_counts_as_miss")) return;
+  await db.execAsync(
+    "ALTER TABLE habits ADD COLUMN blank_counts_as_miss INTEGER NOT NULL DEFAULT 1 CHECK (blank_counts_as_miss IN (0, 1))",
+  );
+}
+
+async function ensureAlarmSource(db: SQLiteDatabase): Promise<void> {
+  const row = await db.getFirstAsync<{ sql: string | null }>(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'day_records'",
+  );
+  if (!row?.sql || row.sql.includes("'alarm'")) return;
+  await db.execAsync(`
+    CREATE TABLE day_records_next (
+      habit_id TEXT NOT NULL,
+      date TEXT NOT NULL CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+      display TEXT NOT NULL CHECK (length(display) > 0 AND length(display) <= 16),
+      source TEXT NOT NULL CHECK (source IN ('manual', 'alarm')),
+      clock_hour INTEGER,
+      clock_minute INTEGER,
+      span_start TEXT,
+      span_end TEXT,
+      PRIMARY KEY (habit_id, date),
+      FOREIGN KEY (habit_id) REFERENCES habits (id) ON DELETE CASCADE,
+      CHECK (
+        (clock_hour IS NULL AND clock_minute IS NULL)
+        OR (clock_hour BETWEEN 0 AND 23 AND clock_minute BETWEEN 0 AND 59)
+      ),
+      CHECK (span_start IS NULL AND span_end IS NULL)
+    );
+    INSERT INTO day_records_next (
+      habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end
+    )
+    SELECT habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end
+    FROM day_records;
+    DROP TABLE day_records;
+    ALTER TABLE day_records_next RENAME TO day_records;
+  `);
+}
+
 function dateInMonth(year: number, month: number, day: number): string {
   if (!Number.isInteger(day) || day < 1 || day > DAY_COLUMNS) {
     throw new Error("That day is not on this grid.");
@@ -353,8 +423,9 @@ async function requireHabit(
     name: string;
     sort_order: number;
     entry: string;
+    blank_counts_as_miss: number;
   }>(
-    "SELECT id, name, sort_order, entry FROM habits WHERE id = ? AND month_id = ?",
+    "SELECT id, name, sort_order, entry, blank_counts_as_miss FROM habits WHERE id = ? AND month_id = ?",
     habitId,
     monthId,
   );
@@ -364,6 +435,7 @@ async function requireHabit(
     name: row.name,
     sortOrder: Number(row.sort_order),
     entry: asEntry(row.entry),
+    blankCountsAsMiss: Number(row.blank_counts_as_miss) !== 0,
   };
 }
 

@@ -30,9 +30,10 @@ Scan the QR code. Marks stay in a database on that device. There is no account a
 
 Habit names stay on the left. Days 1–31 scroll across the top.
 
-- Tick rows cycle empty, tick, cross, then empty.
-- Time rows open a time. Type 630 and the cell shows 630. The log also stores 06:30. Wake up starts as a time row. Sleep Time is a time row when you add it.
-- Add a row, rename it, move it, or remove it. Then lock the month. Names stay fixed. Days can still be marked. Unlock if a name still needs a change.
+- Add a row as Tick or Time. Wake up stays Time. Sleep Time is Time too. Meditation and Reading stay Tick.
+- A tick cycles blank, tick, cross, then blank. A time stores a value such as 630 and never shows a tick or a cross.
+- Each row says "Empty day counts as a miss." That is on by default. The cell stays blank. Turn it off and a blank is not a miss.
+- Rename a row, move it, or remove it. Then lock the month. Names stay fixed. Days can still be marked. Unlock if a name still needs a change.
 
 The first open of a month starts with three empty rows: Wake up, Meditation, and Reading.
 

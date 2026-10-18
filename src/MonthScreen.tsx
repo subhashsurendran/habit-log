@@ -21,18 +21,20 @@ import {
   openAppDatabase,
   removeHabit,
   renameHabit,
+  setBlankCountsAsMiss,
   setLocked,
   setTime,
 } from "./db";
 import { errorText } from "./errors";
 import { dateFor, monthTitle } from "./month";
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
+import { countsAsMiss, shownMark } from "./tally";
 import { formatClock, parseTimeInput } from "./time";
-import type { DayRecord, Habit, MonthState } from "./types";
+import type { DayRecord, Entry, Habit, MonthState } from "./types";
 
-const LABEL_W = 168;
+const LABEL_W = 248;
 const DAY_W = 46;
-const ROW_H = 72;
+const ROW_H = 124;
 const HEADER_H = 40;
 const DAY_COUNT = 31;
 const DAYS = Array.from({ length: DAY_COUNT }, (_, index) => index + 1);
@@ -125,8 +127,8 @@ export function MonthScreen() {
           {monthTitle(month.year, month.month)}
         </Text>
         <Text style={styles.hint}>
-          Days 1–31 scroll sideways. A tick row cycles blank, tick, then cross. Wake up and Sleep
-          Time take a time such as 630.
+          Days 1–31 scroll sideways. Add a row as Tick or Time. A tick cycles blank, tick, then
+          cross. A time stores a value such as 630.
         </Text>
         <View style={styles.actions}>
           {month.locked ? null : (
@@ -168,6 +170,11 @@ export function MonthScreen() {
                 isFirst={index === 0}
                 isLast={index === month.habits.length - 1}
                 onRename={() => setRenameEdit(habit)}
+                onToggleMiss={(value) => {
+                  void enqueue((database) =>
+                    setBlankCountsAsMiss(database, month.id, habit.id, value),
+                  ).catch(() => undefined);
+                }}
                 onMove={(direction) => {
                   void enqueue((database) =>
                     moveHabit(database, month.id, habit.id, direction),
@@ -229,8 +236,8 @@ export function MonthScreen() {
       {addOpen ? (
         <AddDialog
           onClose={() => setAddOpen(false)}
-          onSave={async (name) => {
-            await enqueue((database) => addHabit(database, month.id, name));
+          onSave={async (name, entry) => {
+            await enqueue((database) => addHabit(database, month.id, name, entry));
             setAddOpen(false);
           }}
         />
@@ -297,6 +304,7 @@ function NameCell({
   isFirst,
   isLast,
   onRename,
+  onToggleMiss,
   onMove,
 }: {
   habit: Habit;
@@ -304,15 +312,26 @@ function NameCell({
   isFirst: boolean;
   isLast: boolean;
   onRename: () => void;
+  onToggleMiss: (value: boolean) => void;
   onMove: (direction: "up" | "down") => void;
 }) {
+  const slug = testSlug(habit.name);
   return (
     <View style={[styles.nameCell, styles.line]}>
-      <Pressable onPress={onRename} disabled={locked} testID={`habit-${testSlug(habit.name)}`}>
+      <Pressable onPress={onRename} disabled={locked} testID={`habit-${slug}`}>
         <Text style={styles.habitName} numberOfLines={2}>
           {habit.name}
         </Text>
-        {habit.entry === "time" ? <Text style={styles.kind}>time</Text> : null}
+        <Text style={styles.kind}>{habit.entry === "time" ? "time" : "tick"}</Text>
+      </Pressable>
+      <Pressable
+        testID={`miss-flag-${slug}`}
+        onPress={() => onToggleMiss(!habit.blankCountsAsMiss)}
+        accessibilityState={{ checked: habit.blankCountsAsMiss }}
+      >
+        <Text style={styles.missFlag}>
+          {habit.blankCountsAsMiss ? "[x]" : "[ ]"} Empty day counts as a miss
+        </Text>
       </Pressable>
       {locked ? null : (
         <View style={styles.reorder}>
@@ -342,6 +361,7 @@ function DayCell({
   onPress: () => void;
 }) {
   const slug = testSlug(habit.name);
+  const shown = shownMark(habit.entry, record?.display);
   return (
     <Pressable
       testID={`cell-${slug}-${day}`}
@@ -353,12 +373,12 @@ function DayCell({
         testID={`mark-${slug}-${day}`}
         style={[
           styles.mark,
-          record?.display === "tick" && styles.tick,
-          record?.display === "cross" && styles.cross,
-          record && record.display !== "tick" && record.display !== "cross" && styles.timeMark,
+          shown === "tick" && styles.tick,
+          shown === "cross" && styles.cross,
+          shown === "time" && styles.timeMark,
         ]}
       >
-        {markGlyph(record?.display)}
+        {markGlyph(shown, record?.display)}
       </Text>
     </Pressable>
   );
@@ -369,11 +389,13 @@ function AddDialog({
   onSave,
 }: {
   onClose: () => void;
-  onSave: (name: string) => Promise<void>;
+  onSave: (name: string, entry: Entry) => Promise<void>;
 }) {
   const [name, setName] = useState("");
+  const [chosen, setChosen] = useState<Entry>("tick");
   const [message, setMessage] = useState<string | null>(null);
   const reserved = isReservedTimeName(name);
+  const entry: Entry = reserved ? "time" : chosen;
   return (
     <Dialog title="Add row" onClose={onClose}>
       <TextInput
@@ -388,10 +410,29 @@ function AddDialog({
         autoCorrect={false}
         style={styles.input}
       />
+      <View style={styles.actions}>
+        <Pressable
+          testID="add-kind-tick"
+          disabled={reserved}
+          onPress={() => setChosen("tick")}
+          style={[styles.button, entry === "tick" && styles.buttonOn, reserved && styles.buttonOff]}
+        >
+          <Text style={[styles.buttonText, entry === "tick" && styles.buttonOnText]}>Tick</Text>
+        </Pressable>
+        <Pressable
+          testID="add-kind-time"
+          onPress={() => setChosen("time")}
+          style={[styles.button, entry === "time" && styles.buttonOn]}
+        >
+          <Text style={[styles.buttonText, entry === "time" && styles.buttonOnText]}>Time</Text>
+        </Pressable>
+      </View>
       <Text style={styles.hint}>
         {reserved
-          ? "Wake up and Sleep Time take a time."
-          : "Any other name takes a tick or a cross."}
+          ? "Wake up and Sleep Time are time rows."
+          : entry === "time"
+            ? "A time stores a value such as 630. It does not take a tick or a cross."
+            : "A tick cycles blank, tick, then cross."}
       </Text>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
       <View style={styles.actions}>
@@ -399,7 +440,7 @@ function AddDialog({
           style={styles.button}
           testID="add-save"
           onPress={() => {
-            void onSave(name).catch((error: unknown) => setMessage(errorText(error)));
+            void onSave(name, entry).catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
           <Text style={styles.buttonText}>Save</Text>
@@ -566,20 +607,26 @@ function Dialog({
   );
 }
 
-function markGlyph(display: string | undefined): string {
-  if (display === "tick") return "✓";
-  if (display === "cross") return "✕";
-  return display ?? "";
+function markGlyph(shown: ReturnType<typeof shownMark>, display: string | undefined): string {
+  if (shown === "tick") return "✓";
+  if (shown === "cross") return "✕";
+  if (shown === "time") return display ?? "";
+  return "";
 }
 
 function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): string {
-  if (!record) return `${habit.name}, day ${day}, empty`;
-  if (record.display === "tick") return `${habit.name}, day ${day}, tick`;
-  if (record.display === "cross") return `${habit.name}, day ${day}, cross`;
-  if (record.clockHour != null && record.clockMinute != null) {
+  const shown = shownMark(habit.entry, record?.display);
+  if (shown === "blank") {
+    return countsAsMiss(habit.entry, habit.blankCountsAsMiss, record?.display)
+      ? `${habit.name}, day ${day}, empty, counts as a miss`
+      : `${habit.name}, day ${day}, empty`;
+  }
+  if (shown === "tick") return `${habit.name}, day ${day}, tick`;
+  if (shown === "cross") return `${habit.name}, day ${day}, cross`;
+  if (record?.clockHour != null && record.clockMinute != null) {
     return `${habit.name}, day ${day}, ${record.display}, ${formatClock(record.clockHour, record.clockMinute)}`;
   }
-  return `${habit.name}, day ${day}, ${record.display}`;
+  return `${habit.name}, day ${day}, ${record?.display ?? ""}`;
 }
 
 const styles = StyleSheet.create({
@@ -679,6 +726,21 @@ const styles = StyleSheet.create({
     color: "#5c6570",
     fontSize: 11,
     marginTop: 2,
+  },
+  missFlag: {
+    color: "#1c2834",
+    fontSize: 11,
+    lineHeight: 14,
+    marginTop: 4,
+  },
+  buttonOn: {
+    backgroundColor: "#23415c",
+  },
+  buttonOnText: {
+    color: "#fffdf8",
+  },
+  buttonOff: {
+    opacity: 0.4,
   },
   reorder: {
     flexDirection: "row",
