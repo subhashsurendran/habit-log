@@ -1,11 +1,12 @@
 import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
+import { checklistSummary, normalizeChecklist, parseStoredChecklist } from "./checklist";
 import { parseFollowUpHours } from "./followUp";
 import { dateFor, daysInMonth } from "./month";
 import { entryForName, validateName } from "./names";
 import { parseStoredTags, normalizeTags } from "./tags";
 import { formatClock12, parseTimeInput } from "./time";
-import type { DayRecord, Entry, Habit, MarkSource, MonthState, TickOutcome } from "./types";
+import type { CheckItem, DayRecord, Entry, Habit, MarkSource, MonthState, TickOutcome } from "./types";
 
 const TICK_NOTE_MAX = 40;
 const JOURNAL_NOTE_MAX = 2000;
@@ -47,7 +48,7 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
       month_id TEXT NOT NULL,
       name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 40),
       sort_order INTEGER NOT NULL,
-      entry TEXT NOT NULL CHECK (entry IN ('tick', 'timer', 'journal')),
+      entry TEXT NOT NULL CHECK (entry IN ('tick', 'timer', 'journal', 'checklist')),
       blank_counts_as_miss INTEGER NOT NULL DEFAULT 1 CHECK (blank_counts_as_miss IN (0, 1)),
       follow_up_hours INTEGER,
       reminder_hour INTEGER,
@@ -72,6 +73,7 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
       note TEXT,
       photo_path TEXT,
       diary_mark INTEGER NOT NULL DEFAULT 0 CHECK (diary_mark IN (0, 1)),
+      checklist TEXT,
       PRIMARY KEY (habit_id, date),
       FOREIGN KEY (habit_id) REFERENCES habits (id) ON DELETE CASCADE,
       CHECK (
@@ -90,6 +92,7 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
   await ensureHabitColumns(db);
   await ensureDayColumns(db);
   await ensureTimerEntry(db);
+  await ensureChecklistEntry(db);
 }
 
 export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<MonthState> {
@@ -275,6 +278,52 @@ export async function saveJournal(
   );
 }
 
+export async function saveChecklist(
+  db: SQLiteDatabase,
+  monthId: string,
+  habitId: string,
+  year: number,
+  month: number,
+  day: number,
+  rawItems: readonly CheckItem[],
+): Promise<void> {
+  const date = dateInMonth(year, month, day);
+  const habit = await requireHabit(db, monthId, habitId);
+  if (habit.entry !== "checklist") throw new Error("This row is not a checklist.");
+  const items = normalizeChecklist(rawItems);
+  if (!items.length) {
+    const existing = await db.getFirstAsync<{ display: string }>(
+      "SELECT display FROM day_records WHERE habit_id = ? AND date = ?",
+      habitId,
+      date,
+    );
+    if (existing?.display === "cross") return;
+    await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
+    return;
+  }
+  await db.runAsync(
+    `INSERT INTO day_records (
+       habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end,
+       note, photo_path, diary_mark, checklist
+     ) VALUES (?, ?, ?, 'manual', NULL, NULL, NULL, NULL, NULL, NULL, 0, ?)
+     ON CONFLICT(habit_id, date) DO UPDATE SET
+       display = excluded.display,
+       source = 'manual',
+       clock_hour = NULL,
+       clock_minute = NULL,
+       span_start = NULL,
+       span_end = NULL,
+       note = NULL,
+       photo_path = NULL,
+       diary_mark = 0,
+       checklist = excluded.checklist`,
+    habitId,
+    date,
+    checklistSummary(items),
+    JSON.stringify(items),
+  );
+}
+
 export async function addHabit(
   db: SQLiteDatabase,
   monthId: string,
@@ -283,8 +332,8 @@ export async function addHabit(
   rawTags: readonly string[],
 ): Promise<void> {
   const name = validateName(rawName);
-  if (chosen !== "tick" && chosen !== "timer" && chosen !== "journal") {
-    throw new Error("Choose tick, timer, or journal.");
+  if (chosen !== "tick" && chosen !== "timer" && chosen !== "journal" && chosen !== "checklist") {
+    throw new Error("Choose tick, timer, journal, or checklist.");
   }
   const entry = entryForName(name, chosen);
   const tags = JSON.stringify(normalizeTags(rawTags));
@@ -346,7 +395,9 @@ export async function setFollowUpHours(
   raw: string,
 ): Promise<number | null> {
   const habit = await requireHabit(db, monthId, habitId);
-  if (habit.entry === "journal") throw new Error("A journal row has no follow-up.");
+  if (habit.entry === "journal" || habit.entry === "checklist") {
+    throw new Error("This row has no follow-up.");
+  }
   const hours = parseFollowUpHours(raw);
   if (raw.trim() && hours == null) throw new Error("Use a whole number from 1 to 48, or leave it empty.");
   const result = await db.runAsync(
@@ -404,11 +455,12 @@ export async function renameHabit(
     await db.runAsync(
       `UPDATE habits
        SET name = ?, entry = ?,
-           follow_up_hours = CASE WHEN ? = 'journal' THEN NULL ELSE follow_up_hours END,
+           follow_up_hours = CASE WHEN ? = 'journal' OR ? = 'checklist' THEN NULL ELSE follow_up_hours END,
            reminder_hour = CASE WHEN ? = 'timer' THEN reminder_hour ELSE NULL END,
            reminder_minute = CASE WHEN ? = 'timer' THEN reminder_minute ELSE NULL END
        WHERE id = ? AND month_id = ?`,
       name,
+      entry,
       entry,
       entry,
       entry,
@@ -565,9 +617,10 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
     note: string | null;
     photo_path: string | null;
     diary_mark: number | null;
+    checklist: string | null;
   }>(
     `SELECT r.habit_id, r.date, r.display, r.source, r.clock_hour, r.clock_minute,
-            r.note, r.photo_path, r.diary_mark
+            r.note, r.photo_path, r.diary_mark, r.checklist
      FROM day_records r
      JOIN habits h ON h.id = r.habit_id
      WHERE h.month_id = ?`,
@@ -603,6 +656,7 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
         note: row.note,
         photoPath: row.photo_path,
         diaryMark: Number(row.diary_mark) === 1,
+        checklist: parseStoredChecklist(row.checklist),
       };
       return [record];
     }),
@@ -611,7 +665,7 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
 
 function asEntry(value: string): Entry {
   if (value === "time" || value === "timer") return "timer";
-  if (value === "tick" || value === "journal") return value;
+  if (value === "tick" || value === "journal" || value === "checklist") return value;
   throw new Error("That row is not usable.");
 }
 
@@ -657,6 +711,9 @@ async function ensureDayColumns(db: SQLiteDatabase): Promise<void> {
       "ALTER TABLE day_records ADD COLUMN diary_mark INTEGER NOT NULL DEFAULT 0 CHECK (diary_mark IN (0, 1))",
     );
   }
+  if (!columns.has("checklist")) {
+    await db.execAsync("ALTER TABLE day_records ADD COLUMN checklist TEXT");
+  }
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS wrapped_days (
       month_id TEXT NOT NULL,
@@ -682,7 +739,51 @@ async function ensureTimerEntry(db: SQLiteDatabase): Promise<void> {
         month_id TEXT NOT NULL,
         name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 40),
         sort_order INTEGER NOT NULL,
-        entry TEXT NOT NULL CHECK (entry IN ('tick', 'timer', 'journal')),
+        entry TEXT NOT NULL CHECK (entry IN ('tick', 'timer', 'journal', 'checklist')),
+        blank_counts_as_miss INTEGER NOT NULL DEFAULT 1 CHECK (blank_counts_as_miss IN (0, 1)),
+        follow_up_hours INTEGER,
+        reminder_hour INTEGER,
+        reminder_minute INTEGER,
+        tags TEXT NOT NULL DEFAULT '[]',
+        FOREIGN KEY (month_id) REFERENCES months (id),
+        CHECK (follow_up_hours IS NULL OR (follow_up_hours BETWEEN 1 AND 48)),
+        CHECK (
+          (reminder_hour IS NULL AND reminder_minute IS NULL)
+          OR (reminder_hour BETWEEN 0 AND 23 AND reminder_minute BETWEEN 0 AND 59)
+        )
+      );
+      INSERT INTO habits_next (
+        id, month_id, name, sort_order, entry, blank_counts_as_miss,
+        follow_up_hours, reminder_hour, reminder_minute, tags
+      )
+      SELECT id, month_id, name, sort_order,
+             CASE entry WHEN 'time' THEN 'timer' ELSE entry END,
+             blank_counts_as_miss, follow_up_hours, reminder_hour, reminder_minute,
+             COALESCE(tags, '[]')
+      FROM habits;
+      DROP TABLE habits;
+      ALTER TABLE habits_next RENAME TO habits;
+      CREATE INDEX IF NOT EXISTS habits_month_order ON habits (month_id, sort_order);
+    `);
+  } finally {
+    await db.execAsync("PRAGMA foreign_keys = ON");
+  }
+}
+
+async function ensureChecklistEntry(db: SQLiteDatabase): Promise<void> {
+  const row = await db.getFirstAsync<{ sql: string | null }>(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'habits'",
+  );
+  if (!row?.sql || row.sql.includes("'checklist'")) return;
+  await db.execAsync("PRAGMA foreign_keys = OFF");
+  try {
+    await db.execAsync(`
+      CREATE TABLE habits_next (
+        id TEXT PRIMARY KEY,
+        month_id TEXT NOT NULL,
+        name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 40),
+        sort_order INTEGER NOT NULL,
+        entry TEXT NOT NULL CHECK (entry IN ('tick', 'timer', 'journal', 'checklist')),
         blank_counts_as_miss INTEGER NOT NULL DEFAULT 1 CHECK (blank_counts_as_miss IN (0, 1)),
         follow_up_hours INTEGER,
         reminder_hour INTEGER,

@@ -30,10 +30,11 @@ Scan the QR code. Marks stay in a database on that device. There is no account a
 
 Task names stay on the left. The days across the top match that month, so February stops at 28, or 29 in a leap year. Each column shows the weekday as M, T, W, Th, F, S, or Su. Saturday and Sunday are shaded.
 
-- Add a row as Tick, Timer, or Journal. Wake up is a timer. Meditation and Reading stay ticks. Medicine and Supplement add a starting tag (tablets or fitness) and do not change the row name.
+- Add a row as Tick, Timer, Journal, or Checklist. Wake up is a timer. Meditation and Reading stay ticks. Medicine and Supplement add a starting tag (tablets or fitness) and do not change the row name.
 - A tick cycles blank, tick, cross. Hold the cell for a short note. A timer shows a clock such as 6:30 AM, and you can switch AM and PM. It never shows a tick.
 - A journal cell opens a page for a note, one photo, or "Wrote it in my diary".
-- Tick and timer rows can store a follow-up a whole number of hours after the mark. 8 hours is the shortcut. The browser keeps that number and does not notify you.
+- A checklist cell holds up to three tasks for that day. Name the row yourself, for example Most Important Tasks of the Day. The cell shows how many are done, such as 2/3. It is not a tick. An empty checklist becomes a cross only when the day is wrapped and the miss flag is on.
+- Tick and timer rows can store a follow-up a whole number of hours after the mark. 8 hours is the shortcut. The browser keeps that number and does not notify you. Checklist rows have no follow-up.
 - Wrap up day sits next to Add row. It fills today's empty miss-rows with a cross and locks the rows. Earlier empty miss-rows wrap when the month opens. Marks already made stay put. Unlock rows if you still need a change.
 - Each row says "Empty day counts as a miss." That is on by default. The cell stays blank until wrap-up. Turn it off and a blank is not a miss.
 - Tags are short labels on the row. They do not change the cell.

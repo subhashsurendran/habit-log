@@ -1,6 +1,6 @@
-import type { Entry } from "./types";
+import type { CheckItem, Entry } from "./types";
 
-export type ShownMark = "tick" | "cross" | "time" | "note" | "photo" | "diary" | "blank";
+export type ShownMark = "tick" | "cross" | "time" | "note" | "photo" | "diary" | "list" | "blank";
 
 export type CellView = {
   display?: string;
@@ -9,6 +9,7 @@ export type CellView = {
   diaryMark?: boolean;
   clockHour?: number | null;
   clockMinute?: number | null;
+  checklist?: CheckItem[];
 };
 
 /** What the grid may paint. A timer never shows a tick. A journal done-mark is not a tick. */
@@ -26,6 +27,11 @@ export function shownMark(entry: Entry, cell: CellView | undefined): ShownMark {
     if (cell.note) return "note";
     if (cell.photoPath) return "photo";
     if (cell.diaryMark) return "diary";
+    return "blank";
+  }
+  if (entry === "checklist") {
+    if (cell.checklist && cell.checklist.length > 0) return "list";
+    if (cell.display === "cross") return "cross";
     return "blank";
   }
   if (cell.display === "tick") return "tick";

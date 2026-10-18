@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import type { SQLiteDatabase } from "expo-sqlite";
 
+import { CHECK_ITEM_MAX, checklistSummary, padChecklist } from "./checklist";
 import {
   addHabit,
   clearCell,
@@ -22,6 +23,7 @@ import {
   openAppDatabase,
   removeHabit,
   renameHabit,
+  saveChecklist,
   saveJournal,
   setBlankCountsAsMiss,
   setFollowUpHours,
@@ -41,7 +43,7 @@ import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { ADD_PRESETS, cleanTag, normalizeTags, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
-import type { DayRecord, Entry, Habit, MonthState } from "./types";
+import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 
 const LABEL_W = 168;
 const DAY_W = 64;
@@ -64,6 +66,7 @@ export function MonthScreen() {
     { mode: "cell"; habit: Habit; day: number } | { mode: "reminder"; habit: Habit } | null
   >(null);
   const [journalEdit, setJournalEdit] = useState<{ habit: Habit; day: number } | null>(null);
+  const [checklistEdit, setChecklistEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [noteEdit, setNoteEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<Habit | null>(null);
 
@@ -261,6 +264,10 @@ export function MonthScreen() {
                           }
                           if (habit.entry === "journal") {
                             setJournalEdit({ habit, day });
+                            return;
+                          }
+                          if (habit.entry === "checklist") {
+                            setChecklistEdit({ habit, day });
                             return;
                           }
                           void enqueue(async (database) => {
@@ -479,6 +486,32 @@ export function MonthScreen() {
           }}
         />
       ) : null}
+      {checklistEdit ? (
+        <ChecklistDialog
+          habit={checklistEdit.habit}
+          day={checklistEdit.day}
+          items={
+            records.get(
+              `${checklistEdit.habit.id}|${dateFor(month.year, month.month, checklistEdit.day)}`,
+            )?.checklist ?? []
+          }
+          onClose={() => setChecklistEdit(null)}
+          onSave={async (items) => {
+            await enqueue((database) =>
+              saveChecklist(
+                database,
+                month.id,
+                checklistEdit.habit.id,
+                month.year,
+                month.month,
+                checklistEdit.day,
+                items,
+              ),
+            );
+            setChecklistEdit(null);
+          }}
+        />
+      ) : null}
       {noteEdit ? (
         <NoteDialog
           habit={noteEdit.habit}
@@ -508,8 +541,15 @@ export function MonthScreen() {
   );
 }
 
+function kindLabel(entry: Entry): string {
+  if (entry === "tick") return "Tick";
+  if (entry === "timer") return "Timer";
+  if (entry === "journal") return "Journal";
+  return "Checklist";
+}
+
 function rowSubtitle(habit: Habit): string {
-  const kind = habit.entry === "tick" ? "Tick" : habit.entry === "timer" ? "Timer" : "Journal";
+  const kind = kindLabel(habit.entry);
   if (!habit.tags.length) return kind;
   return `${kind} · ${habit.tags.join(" · ")}`;
 }
@@ -572,9 +612,11 @@ function DayCell({
             ? "note"
             : shown === "photo"
               ? "photo"
-              : shown === "diary"
-                ? "diary"
-                : "";
+          : shown === "diary"
+            ? "diary"
+            : shown === "list"
+              ? checklistSummary(record?.checklist ?? [])
+              : "";
   return (
     <Pressable
       testID={`cell-${slug}-${day}`}
@@ -590,6 +632,7 @@ function DayCell({
           shown === "tick" && styles.tick,
           shown === "cross" && styles.cross,
           shown === "time" && styles.timeMark,
+          shown === "list" && styles.listMark,
         ]}
       >
         {glyph}
@@ -676,7 +719,7 @@ function AddDialog({
         style={styles.input}
       />
       <View style={styles.actions}>
-        {(["tick", "timer", "journal"] as const).map((kind) => (
+        {(["tick", "timer", "journal", "checklist"] as const).map((kind) => (
           <Pressable
             key={kind}
             testID={`add-kind-${kind}`}
@@ -685,15 +728,17 @@ function AddDialog({
             style={[styles.button, entry === kind && styles.buttonOn]}
           >
             <Text style={[styles.buttonText, entry === kind && styles.buttonOnText]}>
-              {kind === "tick" ? "Tick" : kind === "timer" ? "Timer" : "Journal"}
+              {kindLabel(kind)}
             </Text>
           </Pressable>
         ))}
       </View>
       <Text style={styles.hint}>
-        {reserved
-          ? "Wake up and Sleep Time are timer rows."
-          : "Medicine adds the tag tablets. Supplement adds the tag fitness. The row name stays what you type."}
+        {entry === "checklist"
+          ? "A checklist holds up to three tasks for that day. Name it yourself, for example Most Important Tasks of the Day."
+          : reserved
+            ? "Wake up and Sleep Time are timer rows."
+            : "Medicine adds the tag tablets. Supplement adds the tag fitness. The row name stays what you type."}
       </Text>
       <Text style={styles.fieldLabel}>Tags</Text>
       <View style={styles.chips}>
@@ -841,7 +886,7 @@ function RenameDialog({
           {habit.blankCountsAsMiss ? "[x]" : "[ ]"} Empty day counts as a miss
         </Text>
       </Pressable>
-      {habit.entry === "journal" ? null : (
+      {habit.entry === "journal" || habit.entry === "checklist" ? null : (
         <View>
           <Text style={styles.fieldLabel}>Follow-up after a mark</Text>
           <View style={styles.reorder}>
@@ -1073,6 +1118,73 @@ function JournalDialog({
   );
 }
 
+function ChecklistDialog({
+  habit,
+  day,
+  items,
+  onClose,
+  onSave,
+}: {
+  habit: Habit;
+  day: number;
+  items: CheckItem[];
+  onClose: () => void;
+  onSave: (items: CheckItem[]) => Promise<void>;
+}) {
+  const [lines, setLines] = useState<CheckItem[]>(() => padChecklist(items));
+  const [message, setMessage] = useState<string | null>(null);
+
+  function setLine(index: number, patch: Partial<CheckItem>) {
+    setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  }
+
+  return (
+    <Dialog
+      title={`${habit.name} · day ${day}`}
+      onClose={onClose}
+      footer={
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.button, styles.buttonOn]}
+            testID="checklist-save"
+            onPress={() => {
+              void onSave(lines).catch((error: unknown) => setMessage(errorText(error)));
+            }}
+          >
+            <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={onClose}>
+            <Text style={styles.buttonText}>Cancel</Text>
+          </Pressable>
+        </View>
+      }
+    >
+      <Text style={styles.hint}>Up to three tasks for this day. The cell shows how many are done, such as 2/3.</Text>
+      {lines.map((line, index) => (
+        <View key={index} style={styles.checkRow}>
+          <Pressable
+            testID={`check-done-${index}`}
+            style={styles.button}
+            onPress={() => setLine(index, { done: !line.done })}
+          >
+            <Text style={styles.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
+          </Pressable>
+          <TextInput
+            testID={`check-text-${index}`}
+            value={line.text}
+            onChangeText={(text) => setLine(index, { text })}
+            placeholder={`Task ${index + 1}`}
+            maxLength={CHECK_ITEM_MAX}
+            autoCorrect={false}
+            style={[styles.input, styles.checkInput]}
+          />
+        </View>
+      ))}
+      {message ? <Text style={styles.banner}>{message}</Text> : null}
+    </Dialog>
+  );
+}
+
 function NoteDialog({
   habit,
   day,
@@ -1150,6 +1262,9 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
   }
   if (shown === "time" && record?.clockHour != null && record.clockMinute != null) {
     return `${habit.name}, day ${day}, ${formatClock12(record.clockHour, record.clockMinute)}`;
+  }
+  if (shown === "list") {
+    return `${habit.name}, day ${day}, ${checklistSummary(record?.checklist ?? [])}`;
   }
   return `${habit.name}, day ${day}, ${shown}`;
 }
@@ -1251,6 +1366,9 @@ const styles = StyleSheet.create({
   tick: { color: "#1f6b3a", fontSize: 22, fontWeight: "700" },
   cross: { color: "#8d2f2f", fontSize: 22, fontWeight: "700" },
   timeMark: { fontSize: 11, fontWeight: "700", color: "#1c2834" },
+  listMark: { fontSize: 13, fontWeight: "700", color: "#1c2834" },
+  checkRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
+  checkInput: { flex: 1, fontSize: 16, minWidth: 140 },
   note: { fontSize: 9, color: "#5c6570" },
   clock: { fontSize: 28, fontWeight: "700", color: "#1c2834", marginBottom: 8 },
   modalBackdrop: {
