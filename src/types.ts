@@ -41,6 +41,9 @@ export type MonthState = {
   year: number;
   month: number;
   locked: boolean;
+  /** First day the user opened this month. Earlier days stay out of the score. */
+  startedOn: string | null;
+  wrappedDates: string[];
   habits: Habit[];
   records: DayRecord[];
 };

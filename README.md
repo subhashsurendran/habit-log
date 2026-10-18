@@ -41,6 +41,7 @@ Task names stay on the left. The days across the top match that month, so Februa
 - Wrap up day sits next to Add row. It fills today's empty miss-rows with a cross and locks the rows. Marks already made stay put. Unlock rows if you still need a change.
 - Each row says "Empty day counts as a miss." That is on by default. The cell stays blank until that day has passed. Turn it off and a blank is not a miss.
 - Tags are short labels on the row. They do not change the cell.
+- Month score sits with the top buttons. It counts days from when you started through today. A tick, a filled timer, a finished journal, or a checklist with every line checked is done. A cross is a miss. An empty cell is a miss only when that row counts blanks, and only after the day has passed or been wrapped. Efficiency is done divided by done plus miss. With nothing to count, the screen says "No closed days yet". Focus lists up to three rows or tags with the most misses.
 
 The first open of a month starts with three empty rows: Wake up, Meditation, and Reading.
 

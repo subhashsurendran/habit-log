@@ -670,7 +670,8 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
     year: number;
     month: number;
     locked: number;
-  }>("SELECT id, year, month, locked FROM months WHERE id = ?", id);
+    started_on: string | null;
+  }>("SELECT id, year, month, locked, started_on FROM months WHERE id = ?", id);
   if (!monthRow) throw new Error("This month is not ready.");
 
   const habitRows = await db.getAllAsync<{
@@ -710,11 +711,18 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
     id,
   );
 
+  const wrappedRows = await db.getAllAsync<{ date: string }>(
+    "SELECT date FROM wrapped_days WHERE month_id = ?",
+    id,
+  );
+
   return {
     id,
     year: Number(monthRow.year),
     month: Number(monthRow.month),
     locked: Number(monthRow.locked) === 1,
+    startedOn: monthRow.started_on || null,
+    wrappedDates: wrappedRows.map((row) => row.date),
     habits: habitRows.map((row) => ({
       id: row.id,
       name: row.name,

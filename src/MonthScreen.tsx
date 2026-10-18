@@ -50,6 +50,7 @@ import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./mon
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
+import { scoreMonth } from "./score";
 import { ADD_PRESETS, cleanTag, normalizeTags, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
@@ -83,6 +84,7 @@ export function MonthScreen() {
   const [checklistEdit, setChecklistEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [noteEdit, setNoteEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<Habit | null>(null);
+  const [scoreOpen, setScoreOpen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -149,6 +151,16 @@ export function MonthScreen() {
       ? today.getDate()
       : null;
   const days = Array.from({ length: daysInMonth(month.year, month.month) }, (_, index) => index + 1);
+  const todayStamp = dateFor(today.getFullYear(), today.getMonth() + 1, today.getDate());
+  const score = scoreMonth({
+    year: month.year,
+    month: month.month,
+    today: todayStamp,
+    startedOn: month.startedOn,
+    wrappedDates: month.wrappedDates,
+    habits: month.habits,
+    records: month.records,
+  });
   const editingHabit = renameTarget
     ? (month.habits.find((habit) => habit.id === renameTarget.id) ?? null)
     : null;
@@ -191,6 +203,9 @@ export function MonthScreen() {
             }}
           >
             <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
+          </Pressable>
+          <Pressable style={styles.button} testID="month-score" onPress={() => setScoreOpen(true)}>
+            <Text style={styles.buttonText}>Month score</Text>
           </Pressable>
         </View>
         <Text style={styles.hint}>
@@ -565,7 +580,54 @@ export function MonthScreen() {
           }}
         />
       ) : null}
+      {scoreOpen ? (
+        <Dialog
+          title="Month score"
+          onClose={() => setScoreOpen(false)}
+          footer={
+            <Pressable style={styles.button} testID="score-close" onPress={() => setScoreOpen(false)}>
+              <Text style={styles.buttonText}>Close</Text>
+            </Pressable>
+          }
+        >
+          <ScoreBody score={score} />
+        </Dialog>
+      ) : null}
     </SafeAreaView>
+  );
+}
+
+function ScoreBody({ score }: { score: ReturnType<typeof scoreMonth> }) {
+  return (
+    <View testID="month-score-screen">
+      {score.percent == null ? (
+        <Text style={styles.hint} testID="score-empty">
+          No closed days yet
+        </Text>
+      ) : (
+        <View>
+          <Text style={styles.scorePercent} testID="score-percent">
+            {score.percent}%
+          </Text>
+          <Text style={styles.hint} testID="score-done">
+            Done {score.done}
+          </Text>
+          <Text style={styles.hint} testID="score-miss">
+            Miss {score.miss}
+          </Text>
+        </View>
+      )}
+      <Text style={styles.fieldLabel}>Focus</Text>
+      {score.focus.length ? (
+        score.focus.map((item, index) => (
+          <Text key={item.label} style={styles.hint} testID={`score-focus-${index}`}>
+            {item.label} · {item.misses}
+          </Text>
+        ))
+      ) : (
+        <Text style={styles.hint}>None yet</Text>
+      )}
+    </View>
   );
 }
 
@@ -1407,6 +1469,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#f6f1e7" },
   top: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
   title: { fontSize: 22, fontWeight: "700", color: "#1c2834" },
+  scorePercent: { fontSize: 40, fontWeight: "700", color: "#1c2834" },
   month: { marginTop: 2, fontSize: 16, color: "#23415c", fontWeight: "600" },
   hint: { marginTop: 6, color: "#5c6570", fontSize: 13, lineHeight: 18 },
   ask: { marginTop: 12, color: "#1c2834", fontSize: 16, lineHeight: 22, fontWeight: "600" },
