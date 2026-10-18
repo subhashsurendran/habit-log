@@ -97,7 +97,7 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 server.listen(WEB_PORT, HOST, () => {
-  process.stdout.write(`Pencheck: http://${HOST}:${WEB_PORT}\n`);
+  process.stdout.write(`MyDTC: http://${HOST}:${WEB_PORT}\n`);
   if (process.env.HABIT_LOG_NO_OPEN === "1") return;
   const opener = process.platform === "darwin" ? "open" : null;
   if (!opener) return;

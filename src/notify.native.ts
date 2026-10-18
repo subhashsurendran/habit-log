@@ -18,7 +18,7 @@ function reminderId(habitId: string): string {
 async function ensureChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
   await Notifications.setNotificationChannelAsync(CHANNEL, {
-    name: "Pencheck",
+    name: "MyDTC",
     importance: Notifications.AndroidImportance.DEFAULT,
   });
 }
@@ -48,7 +48,7 @@ export async function syncFollowUp(request: FollowUpRequest): Promise<NotifyResu
     await Notifications.scheduleNotificationAsync({
       identifier: followUpId(request.habitId, request.date),
       content: {
-        title: "Pencheck",
+        title: "MyDTC",
         body: request.habitName,
       },
       trigger: {
@@ -72,7 +72,7 @@ export async function syncDailyReminder(request: ReminderRequest): Promise<Notif
     await Notifications.scheduleNotificationAsync({
       identifier: reminderId(request.habitId),
       content: {
-        title: "Pencheck",
+        title: "MyDTC",
         body: request.habitName,
       },
       trigger: {

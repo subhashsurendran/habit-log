@@ -21,7 +21,7 @@ class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
     if (this.state.message) {
       return (
         <View style={styles.fallback}>
-          <Text style={styles.title}>Pencheck</Text>
+          <Text style={styles.title}>MyDTC</Text>
           <Text style={styles.body}>{this.state.message}</Text>
         </View>
       );

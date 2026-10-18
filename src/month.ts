@@ -32,6 +32,11 @@ export function dateFor(year: number, month: number, day: number): string {
   return `${monthId(year, month)}-${String(day).padStart(2, "0")}`;
 }
 
+/** A cross belongs on a day that has passed since the month was started. Today and the days before the start stay blank. */
+export function shouldWrapDate(date: string, startedOn: string, today: string): boolean {
+  return date >= startedOn && date < today;
+}
+
 /** The next calendar day, or null on the last day of the month. */
 export function nextDateInSameMonth(date: string): string | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);

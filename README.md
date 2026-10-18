@@ -2,7 +2,7 @@
 
 Personal Android and iOS habit log. One month on the device. Not part of prarambh.
 
-The name shown in the app is Pencheck. The GitHub repo stays habit-log.
+The name shown in the app is MyDTC. The GitHub repo stays habit-log. There is no store listing.
 
 ## Run on a Mac
 
@@ -37,8 +37,9 @@ Task names stay on the left. The days across the top match that month, so Februa
 - Adding a fourth task asks if you can complete all of them today. A day with more than 12 checklist tasks asks if you can finish that many in a day. You choose. One list stops at 24 tasks.
 - Checklist rows copy unfinished tasks to the next day when that day is wrapped. The original day still shows what was finished. This is on by default. Turn it off on the row if each day should start empty. The copy stays inside the current month, and the next day never grows past three tasks.
 - Tick and timer rows can store a follow-up a whole number of hours after the mark. 8 hours is the shortcut. The browser keeps that number and does not notify you. Checklist rows have no follow-up.
-- Wrap up day sits next to Add row. It fills today's empty miss-rows with a cross and locks the rows. Earlier empty miss-rows wrap when the month opens. Marks already made stay put. Unlock rows if you still need a change.
-- Each row says "Empty day counts as a miss." That is on by default. The cell stays blank until wrap-up. Turn it off and a blank is not a miss.
+- The month starts blank. A cross is added only after a day has passed, and only from the day you first opened that month. Days before you started stay blank. Today stays blank until you wrap up.
+- Wrap up day sits next to Add row. It fills today's empty miss-rows with a cross and locks the rows. Marks already made stay put. Unlock rows if you still need a change.
+- Each row says "Empty day counts as a miss." That is on by default. The cell stays blank until that day has passed. Turn it off and a blank is not a miss.
 - Tags are short labels on the row. They do not change the cell.
 
 The first open of a month starts with three empty rows: Wake up, Meditation, and Reading.

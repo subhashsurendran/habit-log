@@ -2,7 +2,7 @@ import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
 import { checklistSummary, mergeCarriedItems, normalizeChecklist, parseStoredChecklist, sameChecklist } from "./checklist";
 import { parseFollowUpHours } from "./followUp";
-import { dateFor, daysInMonth, nextDateInSameMonth } from "./month";
+import { dateFor, daysInMonth, nextDateInSameMonth, shouldWrapDate } from "./month";
 import { entryForName, validateName } from "./names";
 import { parseStoredTags, normalizeTags } from "./tags";
 import { formatClock12, parseTimeInput } from "./time";
@@ -41,7 +41,8 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
       id TEXT PRIMARY KEY,
       year INTEGER NOT NULL,
       month INTEGER NOT NULL,
-      locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1))
+      locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+      started_on TEXT
     );
     CREATE TABLE IF NOT EXISTS habits (
       id TEXT PRIMARY KEY,
@@ -91,6 +92,7 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS habits_month_order ON habits (month_id, sort_order);
   `);
   await ensureHabitColumns(db);
+  await ensureMonthColumns(db);
   await ensureDayColumns(db);
   await ensureTimerEntry(db);
   await ensureChecklistEntry(db);
@@ -100,6 +102,7 @@ export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<M
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   const id = `${year}-${String(month).padStart(2, "0")}`;
+  const today = dateFor(year, month, now.getDate());
 
   await db.withTransactionAsync(async () => {
     const existing = await db.getFirstAsync<{ id: string }>(
@@ -108,10 +111,11 @@ export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<M
     );
     if (existing) return;
     await db.runAsync(
-      "INSERT INTO months (id, year, month, locked) VALUES (?, ?, ?, 0)",
+      "INSERT INTO months (id, year, month, locked, started_on) VALUES (?, ?, ?, 0, ?)",
       id,
       year,
       month,
+      today,
     );
     for (let index = 0; index < SEED_ROWS.length; index += 1) {
       const seed = SEED_ROWS[index];
@@ -128,6 +132,7 @@ export async function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<M
     }
   });
 
+  await rememberMonthStart(db, id, today);
   await wrapPastDays(db, id, year, month, now);
   return readMonth(db, id);
 }
@@ -566,11 +571,16 @@ async function wrapPastDays(
   now: Date,
 ): Promise<void> {
   const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const started = await db.getFirstAsync<{ started_on: string | null }>(
+    "SELECT started_on FROM months WHERE id = ?",
+    monthId,
+  );
+  const startedOn = started?.started_on || today;
   await db.withTransactionAsync(async () => {
     const freshlyWrapped: string[] = [];
     for (let day = 1; day <= daysInMonth(year, month); day += 1) {
       const date = dateFor(year, month, day);
-      if (date >= today) continue;
+      if (!shouldWrapDate(date, startedOn, today)) continue;
       if (await wrapOneDay(db, monthId, date)) freshlyWrapped.push(date);
     }
     if (freshlyWrapped.length > 0) {
@@ -748,7 +758,47 @@ function asSource(value: string): MarkSource | null {
   return null;
 }
 
-async function columnNames(db: SQLiteDatabase, table: "habits" | "day_records"): Promise<Set<string>> {
+async function rememberMonthStart(db: SQLiteDatabase, monthId: string, today: string): Promise<void> {
+  const row = await db.getFirstAsync<{ started_on: string | null }>(
+    "SELECT started_on FROM months WHERE id = ?",
+    monthId,
+  );
+  if (!row || row.started_on) return;
+  await db.withTransactionAsync(async () => {
+    const claimed = await db.runAsync(
+      "UPDATE months SET started_on = ? WHERE id = ? AND started_on IS NULL",
+      today,
+      monthId,
+    );
+    if (claimed.changes === 0) return;
+    await db.runAsync(
+      `DELETE FROM day_records
+       WHERE date < ?
+         AND habit_id IN (SELECT id FROM habits WHERE month_id = ?)
+         AND display = 'cross'
+         AND clock_hour IS NULL
+         AND clock_minute IS NULL
+         AND note IS NULL
+         AND (photo_path IS NULL OR photo_path = '')
+         AND diary_mark = 0
+         AND (checklist IS NULL OR checklist = '' OR checklist = '[]')`,
+      today,
+      monthId,
+    );
+  });
+}
+
+async function ensureMonthColumns(db: SQLiteDatabase): Promise<void> {
+  const columns = await columnNames(db, "months");
+  if (!columns.has("started_on")) {
+    await db.execAsync("ALTER TABLE months ADD COLUMN started_on TEXT");
+  }
+}
+
+async function columnNames(
+  db: SQLiteDatabase,
+  table: "habits" | "day_records" | "months",
+): Promise<Set<string>> {
   const rows = await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`);
   return new Set(rows.map((row) => row.name));
 }

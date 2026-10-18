@@ -64,6 +64,10 @@ function rowHeight(_entry: Entry): number {
   return ROW_H;
 }
 
+function BrandTitle() {
+  return <Text style={styles.title}>MyDTC</Text>;
+}
+
 export function MonthScreen() {
   const windowWidth = useWindowDimensions().width;
   const dbRef = useRef<SQLiteDatabase | null>(null);
@@ -125,7 +129,7 @@ export function MonthScreen() {
   if (fatal) {
     return (
       <SafeAreaView style={styles.screen}>
-        <Text style={styles.title}>Pencheck</Text>
+        <BrandTitle />
         <Text style={styles.hint}>{fatal}</Text>
       </SafeAreaView>
     );
@@ -133,7 +137,7 @@ export function MonthScreen() {
   if (!month) {
     return (
       <SafeAreaView style={styles.screen}>
-        <Text style={styles.title}>Pencheck</Text>
+        <BrandTitle />
         <Text style={styles.hint}>Opening the month…</Text>
       </SafeAreaView>
     );
@@ -154,7 +158,7 @@ export function MonthScreen() {
   return (
     <SafeAreaView style={styles.screen} testID="month-grid">
       <View style={styles.top}>
-        <Text style={styles.title}>Pencheck</Text>
+        <BrandTitle />
         <Text style={styles.month} testID="month-title">
           {monthTitle(month.year, month.month)}
         </Text>
@@ -192,7 +196,7 @@ export function MonthScreen() {
         <Text style={styles.hint}>
           {month.locked
             ? "Today is wrapped and locked. Unlock rows if you still need a change."
-            : "Wrap up day closes today and locks the rows."}
+            : "The month starts blank. A cross appears only after a day has passed. Wrap up day closes today and locks the rows."}
         </Text>
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
       </View>
