@@ -170,7 +170,6 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
         <BrandLockup />
       </View>
       <View style={styles.controls}>
-        <Text style={styles.hint}>Tap a name to edit the row. Days scroll sideways.</Text>
         <View style={styles.actions}>
           <Pressable style={styles.button} testID="home-button" onPress={onHome}>
             <Text style={styles.buttonText}>Home</Text>
@@ -207,10 +206,8 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
             <Text style={styles.buttonText}>Month score</Text>
           </Pressable>
         </View>
-        <Text style={styles.hint}>
-          {month.locked
-            ? "Today is wrapped and locked. Unlock rows if you still need a change."
-            : "The month starts blank. A cross appears only after a day has passed. Wrap up day closes today and locks the rows."}
+        <Text style={styles.quiet}>
+          {month.locked ? "Rows are locked." : "Wrap up day closes today."}
         </Text>
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
       </View>
@@ -829,10 +826,10 @@ function AddDialog({
       </View>
       <Text style={styles.hint}>
         {entry === "checklist"
-          ? "A checklist starts with three tasks. Adding a fourth asks if you can finish them today. More than 12 tasks on the day asks again. Name it yourself, for example Most Important Tasks of the Day."
+          ? "Subtasks sit under this row."
           : reserved
-            ? "Wake up and Sleep Time are timer rows."
-            : "Medicine adds the tag tablets. Supplement adds the tag fitness. The row name stays what you type."}
+            ? "Wake up and Sleep Time are timers."
+            : "The name stays what you type."}
       </Text>
       <Text style={styles.fieldLabel}>Tags</Text>
       <View style={styles.chips}>
@@ -1114,7 +1111,7 @@ function TimeDialog({
           <Text style={[styles.buttonText, period === "PM" && styles.buttonOnText]}>PM</Text>
         </Pressable>
       </View>
-      <Text style={styles.hint}>630 is 6:30 AM. Switch AM or PM before you save.</Text>
+      <Text style={styles.quiet}>630 is 6:30 AM.</Text>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
       <View style={styles.actions}>
         <Pressable
@@ -1325,12 +1322,12 @@ function ChecklistDialog({
           ) : (
             <>
               {lines.length >= CHECKLIST_MAX ? null : (
-                <Pressable style={[styles.button, styles.buttonOn]} testID="add-checklist-item" onPress={addLine}>
-                  <Text style={[styles.buttonText, styles.buttonOnText]}>Add a subtask</Text>
+                <Pressable style={styles.button} testID="add-checklist-item" onPress={addLine}>
+                  <Text style={styles.buttonText}>Add a subtask</Text>
                 </Pressable>
               )}
-              <Pressable style={styles.button} testID="checklist-save" onPress={save}>
-                <Text style={styles.buttonText}>Save</Text>
+              <Pressable style={[styles.button, styles.buttonOn]} testID="checklist-save" onPress={save}>
+                <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
               </Pressable>
               <Pressable style={styles.button} onPress={onClose}>
                 <Text style={styles.buttonText}>Cancel</Text>
@@ -1340,12 +1337,7 @@ function ChecklistDialog({
         </View>
       }
     >
-      <Text style={styles.hint}>
-        Three tasks is a comfortable day. The cell shows how many are done, such as 2/3.
-        {habit.carryForward
-          ? " Tasks still open are copied to the next day when this day is wrapped. Finished tasks stay here."
-          : ""}
-      </Text>
+      <Text style={styles.quiet}>The cell shows how many are done, such as 2/3.</Text>
       {ask === "over-3" ? (
         <Text style={styles.ask} testID="ask-over-3">
           You already have 3 tasks. Can you complete all of them today?
@@ -1469,48 +1461,50 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#16121C" },
-  brandBlock: { paddingHorizontal: 20, paddingTop: 28, paddingBottom: 8 },
-  controls: { paddingHorizontal: 16, marginTop: 28 },
-  monthBar: { paddingHorizontal: 16, marginTop: 28, marginBottom: 16 },
+  brandBlock: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
+  controls: { paddingHorizontal: 16, marginTop: 24 },
+  monthBar: { paddingHorizontal: 16, marginTop: 24, marginBottom: 12 },
   scorePercent: { fontSize: 40, fontWeight: "800", color: "#F6F1FF" },
-  month: { fontSize: 18, color: "#F6F1FF", fontWeight: "800" },
-  hint: { marginTop: 6, color: "#D9CCEA", fontSize: 13, lineHeight: 18 },
+  month: { fontSize: 17, color: "#F6F1FF", fontWeight: "600" },
+  hint: { marginTop: 8, color: "#D9CCEA", fontSize: 13, lineHeight: 18 },
+  quiet: { marginTop: 8, color: "#8E819C", fontSize: 13, lineHeight: 18 },
   ask: { marginTop: 12, color: "#F6F1FF", fontSize: 16, lineHeight: 22, fontWeight: "700" },
   banner: { marginTop: 8, color: "#FF8AA0", fontSize: 14 },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 0 },
   button: {
+    height: 36,
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#F4ECFF",
+    borderColor: "#3A3348",
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
     backgroundColor: "#1C1726",
   },
-  buttonText: { color: "#F7F2FF", fontSize: 14, fontWeight: "700" },
-  buttonOn: { backgroundColor: "#2A2340", borderColor: "#FFFFFF" },
-  buttonOnText: { color: "#F7F2FF" },
+  buttonText: { color: "#E7DCF8", fontSize: 14, fontWeight: "600" },
+  buttonOn: { backgroundColor: "#2A2340", borderColor: "#6E5A8A" },
+  buttonOnText: { color: "#F6F1FF" },
   vertical: { flex: 1 },
   gridRow: { flexDirection: "row", alignItems: "flex-start" },
-  line: { borderColor: "#CDB6FF", borderRightWidth: 1, borderBottomWidth: 1 },
+  line: { borderColor: "#2C2636", borderRightWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
   corner: {
     width: LABEL_W,
     height: HEADER_H,
     justifyContent: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 16,
     backgroundColor: "#1C1726",
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderLeftWidth: StyleSheet.hairlineWidth,
   },
-  cornerText: { color: "#F6F1FF", fontWeight: "800", fontSize: 13 },
+  cornerText: { color: "#6E5A8A", fontWeight: "500", fontSize: 11, letterSpacing: 0.4 },
   nameCell: {
     width: LABEL_W,
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     backgroundColor: "#1C1726",
     borderLeftWidth: 1,
   },
-  habitName: { color: "#F6F1FF", fontSize: 15, fontWeight: "700" },
-  kind: { color: "#D9CCEA", fontSize: 12, marginTop: 2 },
+  habitName: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
+  kind: { color: "#8E819C", fontSize: 11, marginTop: 2 },
   fieldLabel: {
     marginTop: 14,
     marginBottom: 6,
@@ -1521,8 +1515,8 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     borderWidth: 1,
-    borderColor: "#F4ECFF",
-    borderRadius: 99,
+    borderColor: "#3A3348",
+    borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 4,
     backgroundColor: "#1C1726",
@@ -1534,8 +1528,8 @@ const styles = StyleSheet.create({
   linkOff: { color: "#8A7A9E" },
   tagInput: {
     borderWidth: 1,
-    borderColor: "#F4ECFF",
-    borderRadius: 6,
+    borderColor: "#3A3348",
+    borderRadius: 10,
     paddingHorizontal: 6,
     paddingVertical: 2,
     minWidth: 64,
@@ -1550,20 +1544,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#1C1726",
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  weekdayText: { color: "#D9CCEA", fontSize: 10, fontWeight: "700", lineHeight: 12 },
-  dayText: { color: "#F6F1FF", fontSize: 13, fontWeight: "800", lineHeight: 16 },
+  weekdayText: { color: "#6E5A8A", fontSize: 9, fontWeight: "500", lineHeight: 12 },
+  dayText: {
+    color: "#A894C4",
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 16,
+    textShadowColor: "rgba(255, 255, 255, 0.38)",
+    textShadowOffset: { width: 0, height: -1 },
+    textShadowRadius: 0,
+  },
   cell: {
     width: DAY_W,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#1C1726",
   },
-  weekend: { backgroundColor: "#241C32" },
-  weekendText: { color: "#E7DCF8" },
-  today: { backgroundColor: "#2E2644" },
-  todayText: { color: "#F6F1FF", fontWeight: "800" },
+  weekend: { backgroundColor: "#201A2A" },
+  weekendText: { color: "#B9A8D4" },
+  today: { backgroundColor: "#262033" },
+  todayText: {
+    color: "#D4C6F5",
+    fontWeight: "500",
+    textShadowColor: "rgba(255, 255, 255, 0.38)",
+    textShadowOffset: { width: 0, height: -1 },
+    textShadowRadius: 0,
+  },
   mark: { fontSize: 16, color: "#F6F1FF", textAlign: "center" },
   tick: { color: "#3DDC97", fontSize: 22, fontWeight: "800" },
   cross: { color: "#FF8AA0", fontSize: 22, fontWeight: "800" },
@@ -1581,9 +1589,9 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     backgroundColor: "#1C1726",
-    borderWidth: 1,
-    borderColor: "#F4ECFF",
-    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#6E5A8A",
+    borderRadius: 10,
     padding: 16,
     maxWidth: 460,
     width: "100%",
@@ -1591,12 +1599,12 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   modalBody: { flexShrink: 1 },
-  modalFooter: { paddingTop: 12, borderTopWidth: 1, borderTopColor: "#CDB6FF" },
+  modalFooter: { paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#3A3348" },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#F6F1FF", marginBottom: 8 },
   input: {
     borderWidth: 1,
-    borderColor: "#F4ECFF",
-    borderRadius: 8,
+    borderColor: "#3A3348",
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 18,

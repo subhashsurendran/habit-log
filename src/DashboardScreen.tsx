@@ -125,7 +125,7 @@ export function DashboardScreen({ onOpenMonth }: { onOpenMonth: (monthId: string
 
         <View style={styles.card}>
           <Text style={styles.section}>Templates</Text>
-          <Text style={styles.hint}>Save the row list only. Marks stay on the month.</Text>
+          <Text style={styles.hint}>Marks stay on the month.</Text>
           <TextInput
             testID="template-name"
             value={templateName}
@@ -177,11 +177,11 @@ export function DashboardScreen({ onOpenMonth }: { onOpenMonth: (monthId: string
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#16121C" },
-  body: { padding: 20, paddingBottom: 40, gap: 20 },
+  body: { padding: 16, paddingBottom: 40, gap: 16 },
   card: {
-    borderWidth: 1,
-    borderColor: "#F4ECFF",
-    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#6E5A8A",
+    borderRadius: 10,
     backgroundColor: "#1C1726",
     padding: 16,
   },
@@ -192,22 +192,24 @@ const styles = StyleSheet.create({
   banner: { color: "#FF8AA0", fontSize: 14, marginTop: 8 },
   button: {
     alignSelf: "flex-start",
+    height: 36,
+    justifyContent: "center",
     marginTop: 12,
     borderWidth: 1,
-    borderColor: "#F4ECFF",
+    borderColor: "#3A3348",
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 10,
     backgroundColor: "#1C1726",
   },
-  buttonOn: { backgroundColor: "#2A2340", borderColor: "#FFFFFF" },
-  buttonText: { color: "#F7F2FF", fontSize: 15, fontWeight: "700" },
-  buttonOnText: { color: "#F7F2FF" },
+  buttonOn: { backgroundColor: "#2A2340", borderColor: "#6E5A8A" },
+  buttonText: { color: "#E7DCF8", fontSize: 14, fontWeight: "600" },
+  buttonOnText: { color: "#F6F1FF" },
   input: {
     marginTop: 8,
+    height: 36,
     borderWidth: 1,
-    borderColor: "#F4ECFF",
-    borderRadius: 8,
+    borderColor: "#3A3348",
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: "#F6F1FF",
