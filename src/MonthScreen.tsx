@@ -51,7 +51,7 @@ import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./not
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { BrandLockup } from "./BrandLockup";
 import { scoreMonth } from "./score";
-import { ADD_PRESETS, cleanTag, normalizeTags, TAG_MAX } from "./tags";
+import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
@@ -353,10 +353,38 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
           isFirst={month.habits[0]?.id === editingHabit.id}
           isLast={month.habits[month.habits.length - 1]?.id === editingHabit.id}
           onClose={() => setRenameTarget(null)}
-          onSave={async (name) => {
-            const changed = await enqueue((database) =>
-              renameHabit(database, month.id, editingHabit.id, name),
-            );
+          subtasks={
+            editingHabit.entry === "checklist" && todayDay != null
+              ? (records.get(`${editingHabit.id}|${dateFor(month.year, month.month, todayDay)}`)
+                  ?.checklist ?? [])
+              : null
+          }
+          othersOnDay={
+            editingHabit.entry === "checklist" && todayDay != null
+              ? otherChecklistItems(
+                  month.habits,
+                  records,
+                  dateFor(month.year, month.month, todayDay),
+                  editingHabit.id,
+                )
+              : 0
+          }
+          onSave={async (name, subtasks) => {
+            const changed = await enqueue(async (database) => {
+              const result = await renameHabit(database, month.id, editingHabit.id, name);
+              if (subtasks && todayDay != null) {
+                await saveChecklist(
+                  database,
+                  month.id,
+                  editingHabit.id,
+                  month.year,
+                  month.month,
+                  todayDay,
+                  subtasks,
+                );
+              }
+              return result;
+            });
             if (changed.entryChanged) await cancelHabitNotifications(editingHabit.id);
             setRenameTarget(null);
           }}
@@ -780,15 +808,14 @@ function AddDialog({
             style={styles.button}
             onPress={() => {
               setChosen("tick");
-              setTags((current) =>
-                normalizeTags([
-                  ...current.filter(
-                    (tag) => !ADD_PRESETS.some((item) => item.tag.toLowerCase() === tag.toLowerCase()),
-                  ),
-                  preset.tag,
-                ]),
-              );
-              setMessage(null);
+              setTags((current) => {
+                const withoutPreset = current.filter(
+                  (tag) => !ADD_PRESETS.some((item) => item.tag.toLowerCase() === tag.toLowerCase()),
+                );
+                const next = nextTags(withoutPreset, preset.tag);
+                setMessage(next.refused ? TAG_LIMIT_NOTE : null);
+                return next.tags;
+              });
             }}
           >
             <Text style={styles.buttonText}>
@@ -842,6 +869,7 @@ function AddDialog({
       </View>
       <View style={styles.reorder}>
         <TextInput
+          testID="tag-draft"
           value={tagDraft}
           onChangeText={setTagDraft}
           placeholder="Add a tag"
@@ -850,15 +878,22 @@ function AddDialog({
         />
         <Pressable
           style={styles.button}
+          testID="add-tag"
           onPress={() => {
-            setTags(normalizeTags([...tags, tagDraft]));
-            setTagDraft("");
+            const next = nextTags(tags, tagDraft);
+            setTags(next.tags);
+            setMessage(next.refused ? TAG_LIMIT_NOTE : null);
+            if (!next.refused) setTagDraft("");
           }}
         >
           <Text style={styles.buttonText}>Add</Text>
         </Pressable>
       </View>
-      {message ? <Text style={styles.banner}>{message}</Text> : null}
+      {message ? (
+        <Text style={styles.banner} testID="tag-limit-note">
+          {message}
+        </Text>
+      ) : null}
     </Dialog>
   );
 }
@@ -869,6 +904,8 @@ function RenameDialog({
   isLast,
   onClose,
   onSave,
+  subtasks,
+  othersOnDay,
   onRemove,
   onToggleMiss,
   onCarry,
@@ -881,7 +918,9 @@ function RenameDialog({
   isFirst: boolean;
   isLast: boolean;
   onClose: () => void;
-  onSave: (name: string) => Promise<void>;
+  onSave: (name: string, subtasks: CheckItem[] | null) => Promise<void>;
+  subtasks: CheckItem[] | null;
+  othersOnDay: number;
   onRemove: () => Promise<void>;
   onToggleMiss: (value: boolean) => void;
   onCarry: (value: boolean) => void;
@@ -899,7 +938,37 @@ function RenameDialog({
   );
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [lines, setLines] = useState<CheckItem[]>(() =>
+    (subtasks ?? []).map((item) => ({ text: item.text, done: item.done })),
+  );
+  const [rowTags, setRowTags] = useState<string[]>(() => [...habit.tags]);
+  const [acceptedOver3, setAcceptedOver3] = useState(false);
+  const [acceptedOver12, setAcceptedOver12] = useState(false);
+  const [subtaskAsk, setSubtaskAsk] = useState(false);
+  const [dayAsk, setDayAsk] = useState(false);
   const slug = testSlug(habit.name);
+  const filled = normalizeChecklist(lines).length;
+
+  function addSubtask() {
+    if (lines.length >= CHECKLIST_MAX) {
+      setMessage("This list holds 24 tasks.");
+      return;
+    }
+    if (filled >= CHECKLIST_LIMIT && !acceptedOver3) {
+      setSubtaskAsk(true);
+      return;
+    }
+    setLines((current) => [...current, { text: "", done: false }]);
+    setSubtaskAsk(false);
+  }
+
+  function saveRow() {
+    if (subtasks && dayTaskTotal(othersOnDay, lines) > CHECKLIST_DAY_NUDGE && !acceptedOver12) {
+      setDayAsk(true);
+      return;
+    }
+    void onSave(name, subtasks ? lines : null).catch((error: unknown) => setMessage(errorText(error)));
+  }
   const remind =
     habit.reminderHour != null && habit.reminderMinute != null
       ? formatClock12(habit.reminderHour, habit.reminderMinute)
@@ -909,35 +978,126 @@ function RenameDialog({
       title={habit.name}
       onClose={onClose}
       footer={
-        <View style={styles.actions}>
-          <Pressable
-            style={[styles.button, styles.buttonOn]}
-            onPress={() => {
-              void onSave(name).catch((error: unknown) => setMessage(errorText(error)));
-            }}
-          >
-            <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
-          </Pressable>
-          {confirmRemove ? (
-            <Pressable
-              style={styles.button}
-              onPress={() => {
-                void onRemove().catch((error: unknown) => setMessage(errorText(error)));
-              }}
+        <View>
+          {message ? (
+            <Text
+              style={styles.banner}
+              testID={message === TAG_LIMIT_NOTE ? "tag-limit-note" : "row-note"}
             >
-              <Text style={styles.buttonText}>Confirm remove</Text>
-            </Pressable>
+              {message}
+            </Text>
+          ) : null}
+          {subtasks && dayAsk ? (
+            <View style={styles.actions}>
+              <Pressable
+                style={[styles.button, styles.buttonOn]}
+                testID="confirm-over-12-yes"
+                onPress={() => {
+                  setAcceptedOver12(true);
+                  setDayAsk(false);
+                  void onSave(name, lines).catch((error: unknown) => setMessage(errorText(error)));
+                }}
+              >
+                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, keep them</Text>
+              </Pressable>
+              <Pressable style={styles.button} testID="confirm-over-12-no" onPress={() => setDayAsk(false)}>
+                <Text style={styles.buttonText}>Not now</Text>
+              </Pressable>
+            </View>
+          ) : subtasks && subtaskAsk ? (
+            <View style={styles.actions}>
+              <Pressable
+                style={[styles.button, styles.buttonOn]}
+                testID="confirm-over-3-yes"
+                onPress={() => {
+                  setAcceptedOver3(true);
+                  setSubtaskAsk(false);
+                  setLines((current) =>
+                    current.length >= CHECKLIST_MAX ? current : [...current, { text: "", done: false }],
+                  );
+                }}
+              >
+                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, add another</Text>
+              </Pressable>
+              <Pressable style={styles.button} testID="confirm-over-3-no" onPress={() => setSubtaskAsk(false)}>
+                <Text style={styles.buttonText}>Keep 3</Text>
+              </Pressable>
+            </View>
           ) : (
-            <Pressable style={styles.button} onPress={() => setConfirmRemove(true)}>
-              <Text style={styles.buttonText}>Remove</Text>
-            </Pressable>
+            <View style={styles.actions}>
+              {subtasks && lines.length < CHECKLIST_MAX ? (
+                <Pressable style={[styles.button, styles.buttonOn]} testID="add-checklist-item" onPress={addSubtask}>
+                  <Text style={[styles.buttonText, styles.buttonOnText]}>Add a subtask</Text>
+                </Pressable>
+              ) : null}
+              <Pressable style={[styles.button, styles.buttonOn]} testID="row-save" onPress={saveRow}>
+                <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+              </Pressable>
+              {confirmRemove ? (
+                <Pressable
+                  style={styles.button}
+                  onPress={() => {
+                    void onRemove().catch((error: unknown) => setMessage(errorText(error)));
+                  }}
+                >
+                  <Text style={styles.buttonText}>Confirm remove</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.button} onPress={() => setConfirmRemove(true)}>
+                  <Text style={styles.buttonText}>Remove</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.button} testID="row-cancel" onPress={onClose}>
+                <Text style={styles.buttonText}>Cancel</Text>
+              </Pressable>
+            </View>
           )}
-          <Pressable style={styles.button} testID="row-cancel" onPress={onClose}>
-            <Text style={styles.buttonText}>Cancel</Text>
-          </Pressable>
         </View>
       }
     >
+      {subtasks ? (
+        <View testID="subtask-section">
+          <Text style={styles.fieldLabel}>Subtasks</Text>
+          <Text style={styles.hint}>These sit under this task, on today.</Text>
+          {dayAsk ? (
+            <Text style={styles.ask} testID="ask-over-12">
+              This day has {dayTaskTotal(othersOnDay, lines)} tasks. Can you finish this many in a day?
+            </Text>
+          ) : null}
+          {subtaskAsk ? (
+            <Text style={styles.ask} testID="ask-over-3">
+              You already have 3 tasks. Can you complete all of them today?
+            </Text>
+          ) : null}
+          {lines.map((line, index) => (
+            <View key={index} style={styles.checkRow}>
+              <Pressable
+                testID={`check-done-${index}`}
+                style={styles.button}
+                onPress={() =>
+                  setLines((current) =>
+                    current.map((item, i) => (i === index ? { ...item, done: !item.done } : item)),
+                  )
+                }
+              >
+                <Text style={styles.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
+              </Pressable>
+              <TextInput
+                testID={`check-text-${index}`}
+                value={line.text}
+                onChangeText={(text) =>
+                  setLines((current) => current.map((item, i) => (i === index ? { ...item, text } : item)))
+                }
+                placeholder={`Subtask ${index + 1}`}
+                placeholderTextColor="#B7A8C9"
+                maxLength={CHECK_ITEM_MAX}
+                autoCorrect={false}
+                style={[styles.input, styles.checkInput]}
+              />
+            </View>
+          ))}
+        </View>
+      ) : null}
       <Text style={styles.fieldLabel}>Name</Text>
       <TextInput
         testID="rename-input"
@@ -949,15 +1109,24 @@ function RenameDialog({
       />
       <Text style={styles.fieldLabel}>Tags</Text>
       <View style={styles.chips}>
-        {habit.tags.map((tag) => (
-          <Pressable key={tag} style={styles.chip} onPress={() => onTags(habit.tags.filter((item) => item !== tag))}>
+        {rowTags.map((tag) => (
+          <Pressable
+            key={tag}
+            style={styles.chip}
+            onPress={() => {
+              const next = rowTags.filter((item) => item !== tag);
+              setRowTags(next);
+              onTags(next);
+            }}
+          >
             <Text style={styles.chipText}>{tag}  x</Text>
           </Pressable>
         ))}
-        {habit.tags.length ? null : <Text style={styles.kind}>None yet</Text>}
+        {rowTags.length ? null : <Text style={styles.kind}>None yet</Text>}
       </View>
       <View style={styles.reorder}>
         <TextInput
+          testID="tag-draft"
           value={tagDraft}
           onChangeText={setTagDraft}
           placeholder="Add a tag"
@@ -966,8 +1135,16 @@ function RenameDialog({
         />
         <Pressable
           style={styles.button}
+          testID="tag-add"
           onPress={() => {
-            onTags(normalizeTags([...habit.tags, tagDraft]));
+            const next = nextTags(rowTags, tagDraft);
+            if (next.refused) {
+              setMessage(TAG_LIMIT_NOTE);
+              return;
+            }
+            setMessage(null);
+            setRowTags(next.tags);
+            onTags(next.tags);
             setTagDraft("");
           }}
         >
