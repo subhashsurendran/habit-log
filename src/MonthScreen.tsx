@@ -43,16 +43,15 @@ import { countsAsMiss, shownMark } from "./tally";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { DayRecord, Entry, Habit, MonthState } from "./types";
 
-const LABEL_W = 260;
-const DAY_W = 68;
-const HEADER_H = 40;
+const LABEL_W = 168;
+const DAY_W = 64;
+const HEADER_H = 36;
+const ROW_H = 56;
 const DAY_COUNT = 31;
 const DAYS = Array.from({ length: DAY_COUNT }, (_, index) => index + 1);
 
-function rowHeight(entry: Entry): number {
-  if (entry === "timer") return 228;
-  if (entry === "tick") return 196;
-  return 168;
+function rowHeight(_entry: Entry): number {
+  return ROW_H;
 }
 
 export function MonthScreen() {
@@ -144,10 +143,7 @@ export function MonthScreen() {
         <Text style={styles.month} testID="month-title">
           {monthTitle(month.year, month.month)}
         </Text>
-        <Text style={styles.hint}>
-          Days 1–31 scroll sideways. Add a row as Tick, Timer, or Journal. A timer shows a clock
-          such as 6:30 AM.
-        </Text>
+        <Text style={styles.hint}>Tap a name to edit the row. Days scroll sideways.</Text>
         <View style={styles.actions}>
           {month.locked ? null : (
             <Pressable style={styles.button} onPress={() => setAddOpen(true)} testID="add-row">
@@ -166,7 +162,7 @@ export function MonthScreen() {
             <Text style={styles.buttonText}>{month.locked ? "Unlock rows" : "Lock rows"}</Text>
           </Pressable>
           <Pressable
-            style={styles.button}
+            style={[styles.button, styles.buttonOn]}
             testID="wrap-today"
             onPress={() => {
               void enqueue((database) =>
@@ -174,13 +170,11 @@ export function MonthScreen() {
               ).catch(() => undefined);
             }}
           >
-            <Text style={styles.buttonText}>Wrap up day</Text>
+            <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
           </Pressable>
         </View>
         <Text style={styles.hint}>
-          {month.locked
-            ? "Rows are locked. You can still mark days."
-            : "Tap a name to rename it. Up and down change the order."}
+          {month.locked ? "Rows are locked. You can still mark days." : "Wrap up day fills empty misses for today."}
         </Text>
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
       </View>
@@ -191,40 +185,15 @@ export function MonthScreen() {
             <View style={[styles.corner, styles.line]}>
               <Text style={styles.cornerText}>Habit</Text>
             </View>
-            {month.habits.map((habit, index) => (
+            {month.habits.map((habit) => (
               <NameCell
                 key={habit.id}
                 habit={habit}
                 locked={month.locked}
-                isFirst={index === 0}
-                isLast={index === month.habits.length - 1}
-                onRename={() => setNoteEdit(null)}
-                onOpenRename={() => setJournalEdit(null)}
-                onRenameHabit={() => {
+                onPress={() => {
+                  if (month.locked) return;
                   setTimeEdit(null);
                   setRenameTarget(habit);
-                }}
-                onToggleMiss={(value) => {
-                  void enqueue((database) =>
-                    setBlankCountsAsMiss(database, month.id, habit.id, value),
-                  ).catch(() => undefined);
-                }}
-                onTags={(tags) => {
-                  void enqueue((database) => setHabitTags(database, month.id, habit.id, tags)).catch(
-                    () => undefined,
-                  );
-                }}
-                onFollowUp={(raw) => {
-                  void enqueue(async (database) => {
-                    await setFollowUpHours(database, month.id, habit.id, raw);
-                    await cancelHabitNotifications(habit.id);
-                  }).catch(() => undefined);
-                }}
-                onRemind={() => setTimeEdit({ mode: "reminder", habit })}
-                onMove={(direction) => {
-                  void enqueue((database) =>
-                    moveHabit(database, month.id, habit.id, direction),
-                  ).catch(() => undefined);
                 }}
               />
             ))}
@@ -311,6 +280,8 @@ export function MonthScreen() {
       {renameTarget ? (
         <RenameDialog
           habit={renameTarget}
+          isFirst={month.habits[0]?.id === renameTarget.id}
+          isLast={month.habits[month.habits.length - 1]?.id === renameTarget.id}
           onClose={() => setRenameTarget(null)}
           onSave={async (name) => {
             const changed = await enqueue((database) =>
@@ -323,6 +294,32 @@ export function MonthScreen() {
             await enqueue((database) => removeHabit(database, month.id, renameTarget.id));
             await cancelHabitNotifications(renameTarget.id);
             setRenameTarget(null);
+          }}
+          onToggleMiss={(value) => {
+            void enqueue((database) =>
+              setBlankCountsAsMiss(database, month.id, renameTarget.id, value),
+            ).catch(() => undefined);
+          }}
+          onTags={(tags) => {
+            void enqueue((database) => setHabitTags(database, month.id, renameTarget.id, tags)).catch(
+              () => undefined,
+            );
+          }}
+          onFollowUp={(raw) => {
+            void enqueue(async (database) => {
+              await setFollowUpHours(database, month.id, renameTarget.id, raw);
+              await cancelHabitNotifications(renameTarget.id);
+            }).catch(() => undefined);
+          }}
+          onRemind={() => {
+            const habit = renameTarget;
+            setRenameTarget(null);
+            setTimeEdit({ mode: "reminder", habit });
+          }}
+          onMove={(direction) => {
+            void enqueue((database) => moveHabit(database, month.id, renameTarget.id, direction)).catch(
+              () => undefined,
+            );
           }}
         />
       ) : null}
@@ -481,161 +478,35 @@ export function MonthScreen() {
   );
 }
 
+function rowSubtitle(habit: Habit): string {
+  const kind = habit.entry === "tick" ? "Tick" : habit.entry === "timer" ? "Timer" : "Journal";
+  if (!habit.tags.length) return kind;
+  return `${kind} · ${habit.tags.join(" · ")}`;
+}
+
 function NameCell({
   habit,
   locked,
-  isFirst,
-  isLast,
-  onRenameHabit,
-  onToggleMiss,
-  onTags,
-  onFollowUp,
-  onRemind,
-  onMove,
+  onPress,
 }: {
   habit: Habit;
   locked: boolean;
-  isFirst: boolean;
-  isLast: boolean;
-  onRename: () => void;
-  onOpenRename: () => void;
-  onRenameHabit: () => void;
-  onToggleMiss: (value: boolean) => void;
-  onTags: (tags: string[]) => void;
-  onFollowUp: (raw: string) => void;
-  onRemind: () => void;
-  onMove: (direction: "up" | "down") => void;
+  onPress: () => void;
 }) {
-  const slug = testSlug(habit.name);
-  const height = rowHeight(habit.entry);
-  const remind =
-    habit.reminderHour != null && habit.reminderMinute != null
-      ? formatClock12(habit.reminderHour, habit.reminderMinute)
-      : "none";
   return (
-    <View style={[styles.nameCell, styles.line, { height }]}>
-      <Pressable onPress={onRenameHabit} disabled={locked} testID={`habit-${slug}`}>
-        <Text style={styles.habitName} numberOfLines={1}>
-          {habit.name}
-        </Text>
-        <Text style={styles.kind}>{habit.entry}</Text>
-      </Pressable>
-      <TagLine tags={habit.tags} locked={locked} onTags={onTags} />
-      <Pressable
-        testID={`miss-flag-${slug}`}
-        onPress={() => onToggleMiss(!habit.blankCountsAsMiss)}
-      >
-        <Text style={styles.missFlag}>
-          {habit.blankCountsAsMiss ? "[x]" : "[ ]"} Empty day counts as a miss
-        </Text>
-      </Pressable>
-      {habit.entry === "journal" ? null : (
-        <FollowUpLine slug={slug} hours={habit.followUpHours} onFollowUp={onFollowUp} />
-      )}
-      {habit.entry === "timer" ? (
-        <Pressable onPress={onRemind} testID={`remind-${slug}`}>
-          <Text style={styles.missFlag}>Remind at {remind}</Text>
-        </Pressable>
-      ) : null}
-      {locked ? null : (
-        <View style={styles.reorder}>
-          <Pressable disabled={isFirst} onPress={() => onMove("up")}>
-            <Text style={[styles.link, isFirst && styles.linkOff]}>Up</Text>
-          </Pressable>
-          <Pressable disabled={isLast} onPress={() => onMove("down")}>
-            <Text style={[styles.link, isLast && styles.linkOff]}>Down</Text>
-          </Pressable>
-        </View>
-      )}
-    </View>
-  );
-}
-
-function TagLine({
-  tags,
-  locked,
-  onTags,
-}: {
-  tags: string[];
-  locked: boolean;
-  onTags: (tags: string[]) => void;
-}) {
-  const [draft, setDraft] = useState("");
-  return (
-    <View>
-      <Text style={styles.kind} numberOfLines={1}>
-        {tags.length ? tags.join(", ") : "No tags"}
+    <Pressable
+      disabled={locked}
+      onPress={onPress}
+      testID={`habit-${testSlug(habit.name)}`}
+      style={[styles.nameCell, styles.line, { height: ROW_H }]}
+    >
+      <Text style={styles.habitName} numberOfLines={1}>
+        {habit.name}
       </Text>
-      {locked ? null : (
-        <View style={styles.reorder}>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Tag"
-            maxLength={TAG_MAX}
-            style={styles.tagInput}
-          />
-          <Pressable
-            onPress={() => {
-              const next = normalizeTags([...tags, draft]);
-              if (cleanTag(draft) && !next.includes(cleanTag(draft)) && next.length === tags.length) {
-                return;
-              }
-              onTags(next);
-              setDraft("");
-            }}
-          >
-            <Text style={styles.link}>Add</Text>
-          </Pressable>
-          {tags.map((tag) => (
-            <Pressable key={tag} onPress={() => onTags(tags.filter((item) => item !== tag))}>
-              <Text style={styles.link}>{tag} x</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-function FollowUpLine({
-  slug,
-  hours,
-  onFollowUp,
-}: {
-  slug: string;
-  hours: number | null;
-  onFollowUp: (raw: string) => void;
-}) {
-  const [draft, setDraft] = useState(hours != null && hours !== FOLLOW_UP_QUICK ? String(hours) : "");
-  return (
-    <View>
-      <View style={styles.reorder}>
-        <Pressable testID={`follow-8-${slug}`} onPress={() => onFollowUp(String(FOLLOW_UP_QUICK))}>
-          <Text style={[styles.link, hours === FOLLOW_UP_QUICK && styles.habitName]}>8 hours</Text>
-        </Pressable>
-        <TextInput
-          testID={`follow-hours-${slug}`}
-          value={draft}
-          onChangeText={setDraft}
-          onBlur={() => onFollowUp(draft)}
-          placeholder="hours"
-          keyboardType="number-pad"
-          style={styles.tagInput}
-        />
-        <Pressable
-          onPress={() => {
-            setDraft("");
-            onFollowUp("");
-          }}
-        >
-          <Text style={styles.link}>None</Text>
-        </Pressable>
-      </View>
-      {hours != null && Platform.OS === "web" ? (
-        <Text style={styles.kind}>Stored. No notification in the browser.</Text>
-      ) : null}
-    </View>
+      <Text style={styles.kind} numberOfLines={1}>
+        {rowSubtitle(habit)}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -765,28 +636,32 @@ function AddDialog({
           ? "Wake up and Sleep Time are timer rows."
           : "Medicine starts with tablets. Supplement starts with fitness. Remove a tag if you do not want it."}
       </Text>
-      <Text style={styles.kind}>{tags.length ? tags.join(", ") : "No tags"}</Text>
+      <Text style={styles.fieldLabel}>Tags</Text>
+      <View style={styles.chips}>
+        {tags.map((tag) => (
+          <Pressable key={tag} style={styles.chip} onPress={() => setTags(tags.filter((item) => item !== tag))}>
+            <Text style={styles.chipText}>{tag}  x</Text>
+          </Pressable>
+        ))}
+        {tags.length ? null : <Text style={styles.kind}>None yet</Text>}
+      </View>
       <View style={styles.reorder}>
         <TextInput
           value={tagDraft}
           onChangeText={setTagDraft}
-          placeholder="Tag"
+          placeholder="Add a tag"
           maxLength={TAG_MAX}
           style={styles.tagInput}
         />
         <Pressable
+          style={styles.button}
           onPress={() => {
             setTags(normalizeTags([...tags, tagDraft]));
             setTagDraft("");
           }}
         >
-          <Text style={styles.link}>Add tag</Text>
+          <Text style={styles.buttonText}>Add</Text>
         </Pressable>
-        {tags.map((tag) => (
-          <Pressable key={tag} onPress={() => setTags(tags.filter((item) => item !== tag))}>
-            <Text style={styles.link}>{tag} x</Text>
-          </Pressable>
-        ))}
       </View>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
       <View style={styles.actions}>
@@ -809,20 +684,46 @@ function AddDialog({
 
 function RenameDialog({
   habit,
+  isFirst,
+  isLast,
   onClose,
   onSave,
   onRemove,
+  onToggleMiss,
+  onTags,
+  onFollowUp,
+  onRemind,
+  onMove,
 }: {
   habit: Habit;
+  isFirst: boolean;
+  isLast: boolean;
   onClose: () => void;
   onSave: (name: string) => Promise<void>;
   onRemove: () => Promise<void>;
+  onToggleMiss: (value: boolean) => void;
+  onTags: (tags: string[]) => void;
+  onFollowUp: (raw: string) => void;
+  onRemind: () => void;
+  onMove: (direction: "up" | "down") => void;
 }) {
   const [name, setName] = useState(habit.name);
+  const [tagDraft, setTagDraft] = useState("");
+  const [hoursDraft, setHoursDraft] = useState(
+    habit.followUpHours != null && habit.followUpHours !== FOLLOW_UP_QUICK
+      ? String(habit.followUpHours)
+      : "",
+  );
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const slug = testSlug(habit.name);
+  const remind =
+    habit.reminderHour != null && habit.reminderMinute != null
+      ? formatClock12(habit.reminderHour, habit.reminderMinute)
+      : "None";
   return (
-    <Dialog title="Rename row" onClose={onClose}>
+    <Dialog title={habit.name} onClose={onClose}>
+      <Text style={styles.fieldLabel}>Name</Text>
       <TextInput
         testID="rename-input"
         value={name}
@@ -831,15 +732,91 @@ function RenameDialog({
         autoCorrect={false}
         style={styles.input}
       />
+      <Text style={styles.fieldLabel}>Tags</Text>
+      <View style={styles.chips}>
+        {habit.tags.map((tag) => (
+          <Pressable key={tag} style={styles.chip} onPress={() => onTags(habit.tags.filter((item) => item !== tag))}>
+            <Text style={styles.chipText}>{tag}  x</Text>
+          </Pressable>
+        ))}
+        {habit.tags.length ? null : <Text style={styles.kind}>None yet</Text>}
+      </View>
+      <View style={styles.reorder}>
+        <TextInput
+          value={tagDraft}
+          onChangeText={setTagDraft}
+          placeholder="Add a tag"
+          maxLength={TAG_MAX}
+          style={styles.tagInput}
+        />
+        <Pressable
+          style={styles.button}
+          onPress={() => {
+            onTags(normalizeTags([...habit.tags, tagDraft]));
+            setTagDraft("");
+          }}
+        >
+          <Text style={styles.buttonText}>Add</Text>
+        </Pressable>
+      </View>
+      <Pressable testID={`miss-flag-${slug}`} onPress={() => onToggleMiss(!habit.blankCountsAsMiss)}>
+        <Text style={styles.missFlag}>
+          {habit.blankCountsAsMiss ? "[x]" : "[ ]"} Empty day counts as a miss
+        </Text>
+      </Pressable>
+      {habit.entry === "journal" ? null : (
+        <View>
+          <Text style={styles.fieldLabel}>Follow-up after a mark</Text>
+          <View style={styles.reorder}>
+            <Pressable testID={`follow-8-${slug}`} style={styles.button} onPress={() => onFollowUp(String(FOLLOW_UP_QUICK))}>
+              <Text style={styles.buttonText}>8 hours</Text>
+            </Pressable>
+            <TextInput
+              testID={`follow-hours-${slug}`}
+              value={hoursDraft}
+              onChangeText={setHoursDraft}
+              onBlur={() => onFollowUp(hoursDraft)}
+              placeholder="Hours"
+              keyboardType="number-pad"
+              style={styles.tagInput}
+            />
+            <Pressable
+              style={styles.button}
+              onPress={() => {
+                setHoursDraft("");
+                onFollowUp("");
+              }}
+            >
+              <Text style={styles.buttonText}>None</Text>
+            </Pressable>
+          </View>
+          {habit.followUpHours != null && Platform.OS === "web" ? (
+            <Text style={styles.kind}>Stored. No notification in the browser.</Text>
+          ) : null}
+        </View>
+      )}
+      {habit.entry === "timer" ? (
+        <Pressable testID={`remind-${slug}`} onPress={onRemind}>
+          <Text style={styles.missFlag}>Remind at {remind}</Text>
+        </Pressable>
+      ) : null}
+      <View style={styles.actions}>
+        <Pressable style={styles.button} disabled={isFirst} onPress={() => onMove("up")}>
+          <Text style={styles.buttonText}>Move up</Text>
+        </Pressable>
+        <Pressable style={styles.button} disabled={isLast} onPress={() => onMove("down")}>
+          <Text style={styles.buttonText}>Move down</Text>
+        </Pressable>
+      </View>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
       <View style={styles.actions}>
         <Pressable
-          style={styles.button}
+          style={[styles.button, styles.buttonOn]}
           onPress={() => {
             void onSave(name).catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
-          <Text style={styles.buttonText}>Save</Text>
+          <Text style={[styles.buttonText, styles.buttonOnText]}>Save name</Text>
         </Pressable>
         {confirmRemove ? (
           <Pressable
@@ -856,7 +833,7 @@ function RenameDialog({
           </Pressable>
         )}
         <Pressable style={styles.button} onPress={onClose}>
-          <Text style={styles.buttonText}>Cancel</Text>
+          <Text style={styles.buttonText}>Close</Text>
         </Pressable>
       </View>
     </Dialog>
@@ -1162,7 +1139,24 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
   },
   habitName: { color: "#1c2834", fontSize: 15, fontWeight: "600" },
-  kind: { color: "#5c6570", fontSize: 11, marginTop: 2 },
+  kind: { color: "#5c6570", fontSize: 12, marginTop: 2 },
+  fieldLabel: {
+    marginTop: 14,
+    marginBottom: 6,
+    color: "#5c6570",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    borderWidth: 1,
+    borderColor: "#d3cdc2",
+    borderRadius: 99,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: "#fff",
+  },
+  chipText: { color: "#1c2834", fontSize: 13 },
   missFlag: { color: "#1c2834", fontSize: 11, lineHeight: 14, marginTop: 4 },
   reorder: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, alignItems: "center" },
   link: { color: "#23415c", fontSize: 12, fontWeight: "600" },
