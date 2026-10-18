@@ -2,7 +2,7 @@
 
 Personal Android and iOS habit log. One month on the device. Not part of prarambh.
 
-The name shown in the app is MyDTC. The GitHub repo stays habit-log. There is no store listing.
+The name shown in the app is MyDTC. The tagline is "Building habits for the long term, one checks at a time." The GitHub repo stays habit-log. There is no store listing.
 
 ## Run on a Mac
 

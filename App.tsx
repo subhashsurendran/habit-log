@@ -2,6 +2,7 @@ import { StatusBar } from "expo-status-bar";
 import { Component, type ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+import { BrandLockup } from "./src/BrandLockup";
 import { MonthScreen } from "./src/MonthScreen";
 
 type BoundaryState = { message: string | null };
@@ -21,7 +22,7 @@ class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
     if (this.state.message) {
       return (
         <View style={styles.fallback}>
-          <Text style={styles.title}>MyDTC</Text>
+          <BrandLockup />
           <Text style={styles.body}>{this.state.message}</Text>
         </View>
       );
@@ -44,22 +45,17 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#f6f1e7",
+    backgroundColor: "#FFF4CC",
   },
   fallback: {
     flex: 1,
-    backgroundColor: "#f6f1e7",
+    backgroundColor: "#FFF4CC",
     padding: 24,
     justifyContent: "center",
   },
-  title: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#1c2834",
-    marginBottom: 8,
-  },
   body: {
+    marginTop: 12,
     fontSize: 16,
-    color: "#5c6570",
+    color: "#3D4F66",
   },
 });

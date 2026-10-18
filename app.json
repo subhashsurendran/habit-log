@@ -5,6 +5,8 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/mydtc-logo.png",
+    "backgroundColor": "#FF5A45",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {

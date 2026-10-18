@@ -50,6 +50,7 @@ import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./mon
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
+import { BrandLockup } from "./BrandLockup";
 import { scoreMonth } from "./score";
 import { ADD_PRESETS, cleanTag, normalizeTags, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
@@ -63,10 +64,6 @@ const ROW_H = 56;
 
 function rowHeight(_entry: Entry): number {
   return ROW_H;
-}
-
-function BrandTitle() {
-  return <Text style={styles.title}>MyDTC</Text>;
 }
 
 export function MonthScreen() {
@@ -131,7 +128,7 @@ export function MonthScreen() {
   if (fatal) {
     return (
       <SafeAreaView style={styles.screen}>
-        <BrandTitle />
+        <BrandLockup />
         <Text style={styles.hint}>{fatal}</Text>
       </SafeAreaView>
     );
@@ -139,7 +136,7 @@ export function MonthScreen() {
   if (!month) {
     return (
       <SafeAreaView style={styles.screen}>
-        <BrandTitle />
+        <BrandLockup />
         <Text style={styles.hint}>Opening the month…</Text>
       </SafeAreaView>
     );
@@ -170,7 +167,7 @@ export function MonthScreen() {
   return (
     <SafeAreaView style={styles.screen} testID="month-grid">
       <View style={styles.top}>
-        <BrandTitle />
+        <BrandLockup />
         <Text style={styles.month} testID="month-title">
           {monthTitle(month.year, month.month)}
         </Text>
@@ -1466,72 +1463,71 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#f6f1e7" },
+  screen: { flex: 1, backgroundColor: "#FFF4CC" },
   top: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
-  title: { fontSize: 22, fontWeight: "700", color: "#1c2834" },
-  scorePercent: { fontSize: 40, fontWeight: "700", color: "#1c2834" },
-  month: { marginTop: 2, fontSize: 16, color: "#23415c", fontWeight: "600" },
-  hint: { marginTop: 6, color: "#5c6570", fontSize: 13, lineHeight: 18 },
-  ask: { marginTop: 12, color: "#1c2834", fontSize: 16, lineHeight: 22, fontWeight: "600" },
-  banner: { marginTop: 8, color: "#8d2f2f", fontSize: 14 },
+  scorePercent: { fontSize: 40, fontWeight: "800", color: "#FF5A45" },
+  month: { marginTop: 8, fontSize: 16, color: "#FF5A45", fontWeight: "800" },
+  hint: { marginTop: 6, color: "#3D4F66", fontSize: 13, lineHeight: 18 },
+  ask: { marginTop: 12, color: "#102A43", fontSize: 16, lineHeight: 22, fontWeight: "700" },
+  banner: { marginTop: 8, color: "#E11D48", fontSize: 14 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
   button: {
-    borderWidth: 1,
-    borderColor: "#23415c",
-    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#FF5A45",
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: "#fffdf8",
+    backgroundColor: "#FFFFFF",
   },
-  buttonText: { color: "#23415c", fontSize: 14, fontWeight: "600" },
-  buttonOn: { backgroundColor: "#23415c" },
-  buttonOnText: { color: "#fffdf8" },
+  buttonText: { color: "#C4321A", fontSize: 14, fontWeight: "700" },
+  buttonOn: { backgroundColor: "#FF5A45" },
+  buttonOnText: { color: "#FFFFFF" },
   vertical: { flex: 1 },
   gridRow: { flexDirection: "row", alignItems: "flex-start" },
-  line: { borderColor: "#d3cdc2", borderRightWidth: 1, borderBottomWidth: 1 },
+  line: { borderColor: "#FFB703", borderRightWidth: 1, borderBottomWidth: 1 },
   corner: {
     width: LABEL_W,
     height: HEADER_H,
     justifyContent: "center",
     paddingHorizontal: 10,
-    backgroundColor: "#efe8d8",
+    backgroundColor: "#FFD23F",
     borderTopWidth: 1,
     borderLeftWidth: 1,
   },
-  cornerText: { color: "#1c2834", fontWeight: "700", fontSize: 13 },
+  cornerText: { color: "#102A43", fontWeight: "800", fontSize: 13 },
   nameCell: {
     width: LABEL_W,
     justifyContent: "center",
     paddingHorizontal: 8,
-    backgroundColor: "#f3ecdf",
+    backgroundColor: "#FFFFFF",
     borderLeftWidth: 1,
   },
-  habitName: { color: "#1c2834", fontSize: 15, fontWeight: "600" },
-  kind: { color: "#5c6570", fontSize: 12, marginTop: 2 },
+  habitName: { color: "#102A43", fontSize: 15, fontWeight: "700" },
+  kind: { color: "#0F6E56", fontSize: 12, marginTop: 2 },
   fieldLabel: {
     marginTop: 14,
     marginBottom: 6,
-    color: "#5c6570",
+    color: "#0F6E56",
     fontSize: 12,
     fontWeight: "600",
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     borderWidth: 1,
-    borderColor: "#d3cdc2",
+    borderColor: "#2EC4B6",
     borderRadius: 99,
     paddingHorizontal: 10,
     paddingVertical: 4,
     backgroundColor: "#fff",
   },
-  chipText: { color: "#1c2834", fontSize: 13 },
-  missFlag: { color: "#1c2834", fontSize: 11, lineHeight: 14, marginTop: 4 },
+  chipText: { color: "#102A43", fontSize: 13 },
+  missFlag: { color: "#102A43", fontSize: 11, lineHeight: 14, marginTop: 4 },
   reorder: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, alignItems: "center" },
-  link: { color: "#23415c", fontSize: 12, fontWeight: "600" },
-  linkOff: { color: "#b7b1a6" },
+  link: { color: "#FF5A45", fontSize: 12, fontWeight: "700" },
+  linkOff: { color: "#F4A261" },
   tagInput: {
     borderWidth: 1,
-    borderColor: "#d3cdc2",
+    borderColor: "#FFB703",
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -1545,39 +1541,39 @@ const styles = StyleSheet.create({
     height: HEADER_H,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#efe8d8",
+    backgroundColor: "#FFD23F",
     borderTopWidth: 1,
   },
-  weekdayText: { color: "#5c6570", fontSize: 10, fontWeight: "600", lineHeight: 12 },
-  dayText: { color: "#1c2834", fontSize: 13, fontWeight: "600", lineHeight: 16 },
+  weekdayText: { color: "#7A3410", fontSize: 10, fontWeight: "700", lineHeight: 12 },
+  dayText: { color: "#102A43", fontSize: 13, fontWeight: "800", lineHeight: 16 },
   cell: {
     width: DAY_W,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fffdf8",
+    backgroundColor: "#FFFFFF",
   },
-  weekend: { backgroundColor: "#f4e6dc" },
-  weekendText: { color: "#7a4534" },
-  today: { backgroundColor: "#d9e6f2" },
-  todayText: { color: "#18324d", fontWeight: "700" },
-  mark: { fontSize: 16, color: "#1c2834", textAlign: "center" },
-  tick: { color: "#1f6b3a", fontSize: 22, fontWeight: "700" },
-  cross: { color: "#8d2f2f", fontSize: 22, fontWeight: "700" },
-  timeMark: { fontSize: 11, fontWeight: "700", color: "#1c2834" },
-  listMark: { fontSize: 13, fontWeight: "700", color: "#1c2834" },
+  weekend: { backgroundColor: "#FFE08A" },
+  weekendText: { color: "#C2410C" },
+  today: { backgroundColor: "#2EC4B6" },
+  todayText: { color: "#083344", fontWeight: "800" },
+  mark: { fontSize: 16, color: "#102A43", textAlign: "center" },
+  tick: { color: "#12B76A", fontSize: 22, fontWeight: "800" },
+  cross: { color: "#E11D48", fontSize: 22, fontWeight: "800" },
+  timeMark: { fontSize: 11, fontWeight: "800", color: "#0F6E56" },
+  listMark: { fontSize: 13, fontWeight: "800", color: "#0F6E56" },
   checkRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
   checkInput: { flex: 1, fontSize: 16, minWidth: 140 },
-  note: { fontSize: 9, color: "#5c6570" },
-  clock: { fontSize: 28, fontWeight: "700", color: "#1c2834", marginBottom: 8 },
+  note: { fontSize: 9, color: "#0F6E56" },
+  clock: { fontSize: 28, fontWeight: "800", color: "#FF5A45", marginBottom: 8 },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(28, 40, 52, 0.35)",
+    backgroundColor: "rgba(16, 42, 67, 0.45)",
     justifyContent: "center",
     padding: 20,
   },
   modalCard: {
-    backgroundColor: "#fffdf8",
-    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
     padding: 16,
     maxWidth: 460,
     width: "100%",
@@ -1585,16 +1581,16 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   modalBody: { flexShrink: 1 },
-  modalFooter: { paddingTop: 12, borderTopWidth: 1, borderTopColor: "#d3cdc2" },
-  modalTitle: { fontSize: 18, fontWeight: "700", color: "#1c2834", marginBottom: 8 },
+  modalFooter: { paddingTop: 12, borderTopWidth: 2, borderTopColor: "#FFD23F" },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: "#102A43", marginBottom: 8 },
   input: {
-    borderWidth: 1,
-    borderColor: "#d3cdc2",
+    borderWidth: 2,
+    borderColor: "#2EC4B6",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 18,
-    color: "#1c2834",
+    color: "#102A43",
     backgroundColor: "#fff",
   },
   journalInput: { minHeight: 80, textAlignVertical: "top" },
