@@ -34,7 +34,7 @@ import {
 } from "./db";
 import { errorText } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
-import { dateFor, monthTitle } from "./month";
+import { dateFor, daysInMonth, isWeekend, monthTitle } from "./month";
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
@@ -47,8 +47,6 @@ const LABEL_W = 168;
 const DAY_W = 64;
 const HEADER_H = 36;
 const ROW_H = 56;
-const DAY_COUNT = 31;
-const DAYS = Array.from({ length: DAY_COUNT }, (_, index) => index + 1);
 
 function rowHeight(_entry: Entry): number {
   return ROW_H;
@@ -133,6 +131,7 @@ export function MonthScreen() {
     today.getFullYear() === month.year && today.getMonth() + 1 === month.month
       ? today.getDate()
       : null;
+  const days = Array.from({ length: daysInMonth(month.year, month.month) }, (_, index) => index + 1);
   const gridWidth = Math.max(220, windowWidth - LABEL_W);
   const bodyHeight = HEADER_H + month.habits.reduce((sum, habit) => sum + rowHeight(habit.entry), 0);
 
@@ -204,19 +203,35 @@ export function MonthScreen() {
           <ScrollView horizontal testID="day-scroll" style={{ width: gridWidth, height: bodyHeight }}>
             <View>
               <View style={styles.dayHeaderRow}>
-                {DAYS.map((day) => (
+                {days.map((day) => {
+                  const weekend = isWeekend(month.year, month.month, day);
+                  return (
                   <View
                     key={day}
                     testID={`day-number-${day}`}
-                    style={[styles.dayHeader, styles.line, todayDay === day && styles.today]}
+                    style={[
+                      styles.dayHeader,
+                      styles.line,
+                      weekend && styles.weekend,
+                      todayDay === day && styles.today,
+                    ]}
                   >
-                    <Text style={[styles.dayText, todayDay === day && styles.todayText]}>{day}</Text>
+                    <Text
+                      style={[
+                        styles.dayText,
+                        weekend && styles.weekendText,
+                        todayDay === day && styles.todayText,
+                      ]}
+                    >
+                      {day}
+                    </Text>
                   </View>
-                ))}
+                  );
+                })}
               </View>
               {month.habits.map((habit) => (
                 <View key={habit.id} style={styles.dayHeaderRow}>
-                  {DAYS.map((day) => {
+                  {days.map((day) => {
                     const record = records.get(
                       `${habit.id}|${dateFor(month.year, month.month, day)}`,
                     );
@@ -227,6 +242,7 @@ export function MonthScreen() {
                         day={day}
                         record={record}
                         height={rowHeight(habit.entry)}
+                        isWeekend={isWeekend(month.year, month.month, day)}
                         isToday={todayDay === day}
                         onPress={() => {
                           if (month.locked) return;
@@ -520,6 +536,7 @@ function DayCell({
   day,
   record,
   height,
+  isWeekend,
   isToday,
   onPress,
   onLongPress,
@@ -528,6 +545,7 @@ function DayCell({
   day: number;
   record: DayRecord | undefined;
   height: number;
+  isWeekend: boolean;
   isToday: boolean;
   onPress: () => void;
   onLongPress: () => void;
@@ -554,7 +572,7 @@ function DayCell({
       accessibilityLabel={cellLabel(habit, day, record)}
       onPress={onPress}
       onLongPress={onLongPress}
-      style={[styles.cell, styles.line, { height }, isToday && styles.today]}
+      style={[styles.cell, styles.line, { height }, isWeekend && styles.weekend, isToday && styles.today]}
     >
       <Text
         testID={`mark-${slug}-${day}`}
@@ -1215,6 +1233,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#fffdf8",
   },
+  weekend: { backgroundColor: "#f4e6dc" },
+  weekendText: { color: "#7a4534" },
   today: { backgroundColor: "#d9e6f2" },
   todayText: { color: "#18324d", fontWeight: "700" },
   mark: { fontSize: 16, color: "#1c2834", textAlign: "center" },

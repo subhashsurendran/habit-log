@@ -28,7 +28,7 @@ Scan the QR code. Marks stay in a database on that device. There is no account a
 
 ## What the grid does
 
-Habit names stay on the left. Days 1–31 scroll across the top.
+Habit names stay on the left. The days across the top match that month, so February stops at 28, or 29 in a leap year. Saturday and Sunday are shaded.
 
 - Add a row as Tick, Timer, or Journal. Wake up is a timer. Meditation and Reading stay ticks. Medicine and Supplement add a starting tag (tablets or fitness) and do not change the row name.
 - A tick cycles blank, tick, cross. Hold the cell for a short note. A timer shows a clock such as 6:30 AM, and you can switch AM and PM. It never shows a tick.

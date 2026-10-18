@@ -6,6 +6,12 @@ export function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
 }
 
+/** Sunday is 0 and Saturday is 6, matching the local calendar. */
+export function isWeekend(year: number, month: number, day: number): boolean {
+  const weekday = new Date(year, month - 1, day).getDay();
+  return weekday === 0 || weekday === 6;
+}
+
 export function currentMonth(now = new Date()): { year: number; month: number; id: string } {
   const year = now.getFullYear();
   const month = now.getMonth() + 1;

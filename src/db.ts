@@ -1,13 +1,12 @@
 import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
 import { parseFollowUpHours } from "./followUp";
-import { dateFor } from "./month";
+import { dateFor, daysInMonth } from "./month";
 import { entryForName, validateName } from "./names";
 import { parseStoredTags, normalizeTags } from "./tags";
 import { formatClock12, parseTimeInput } from "./time";
 import type { DayRecord, Entry, Habit, MarkSource, MonthState, TickOutcome } from "./types";
 
-const DAY_COLUMNS = 31;
 const TICK_NOTE_MAX = 40;
 const JOURNAL_NOTE_MAX = 2000;
 
@@ -492,7 +491,7 @@ async function wrapPastDays(
 ): Promise<void> {
   const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
   await db.withTransactionAsync(async () => {
-    for (let day = 1; day <= DAY_COLUMNS; day += 1) {
+    for (let day = 1; day <= daysInMonth(year, month); day += 1) {
       const date = dateFor(year, month, day);
       if (date >= today) continue;
       await wrapOneDay(db, monthId, date);
@@ -715,7 +714,7 @@ async function ensureTimerEntry(db: SQLiteDatabase): Promise<void> {
 }
 
 function dateInMonth(year: number, month: number, day: number): string {
-  if (!Number.isInteger(day) || day < 1 || day > DAY_COLUMNS) {
+  if (!Number.isInteger(day) || day < 1 || day > daysInMonth(year, month)) {
     throw new Error("That day is not on this grid.");
   }
   if (!Number.isInteger(month) || month < 1 || month > 12) {
