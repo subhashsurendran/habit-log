@@ -21,7 +21,6 @@ import {
   checklistSummary,
   dayTaskTotal,
   normalizeChecklist,
-  padChecklist,
 } from "./checklist";
 import {
   addHabit,
@@ -1251,14 +1250,13 @@ function ChecklistDialog({
   onClose: () => void;
   onSave: (items: CheckItem[]) => Promise<void>;
 }) {
-  const [lines, setLines] = useState<CheckItem[]>(() => padChecklist(items));
+  const [lines, setLines] = useState<CheckItem[]>(() => items.map((item) => ({ text: item.text, done: item.done })));
   const [acceptedOver3, setAcceptedOver3] = useState(false);
   const [acceptedOver12, setAcceptedOver12] = useState(false);
   const [ask, setAsk] = useState<null | "over-3" | "over-12">(null);
   const [message, setMessage] = useState<string | null>(null);
   const filled = normalizeChecklist(lines).length;
   const dayTotal = dayTaskTotal(othersOnDay, lines);
-  const hasEmptyLine = lines.some((line) => line.text.trim().length === 0);
 
   function setLine(index: number, patch: Partial<CheckItem>) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -1326,8 +1324,13 @@ function ChecklistDialog({
             </>
           ) : (
             <>
-              <Pressable style={[styles.button, styles.buttonOn]} testID="checklist-save" onPress={save}>
-                <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+              {lines.length >= CHECKLIST_MAX ? null : (
+                <Pressable style={[styles.button, styles.buttonOn]} testID="add-checklist-item" onPress={addLine}>
+                  <Text style={[styles.buttonText, styles.buttonOnText]}>Add a subtask</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.button} testID="checklist-save" onPress={save}>
+                <Text style={styles.buttonText}>Save</Text>
               </Pressable>
               <Pressable style={styles.button} onPress={onClose}>
                 <Text style={styles.buttonText}>Cancel</Text>
@@ -1366,20 +1369,14 @@ function ChecklistDialog({
             testID={`check-text-${index}`}
             value={line.text}
             onChangeText={(text) => setLine(index, { text })}
-            placeholder={`Task ${index + 1}`}
+            placeholder={`Subtask ${index + 1}`}
+            placeholderTextColor="#B7A8C9"
             maxLength={CHECK_ITEM_MAX}
             autoCorrect={false}
             style={[styles.input, styles.checkInput]}
           />
         </View>
       ))}
-      {ask || hasEmptyLine || lines.length >= CHECKLIST_MAX ? null : (
-        <View style={styles.actions}>
-          <Pressable style={styles.button} testID="add-checklist-item" onPress={addLine}>
-            <Text style={styles.buttonText}>Add a task</Text>
-          </Pressable>
-        </View>
-      )}
       {lines.length >= CHECKLIST_MAX ? <Text style={styles.hint}>This list holds 24 tasks.</Text> : null}
       {message ? <Text style={styles.banner}>{message}</Text> : null}
     </Dialog>
