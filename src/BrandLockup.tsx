@@ -1,6 +1,6 @@
 import { Image, StyleSheet, Text, View } from "react-native";
 
-export const TAGLINE = "Building habits for the long term, one checks at a time.";
+export const TAGLINE = "Building long-term habits, one check at a time.";
 
 export function BrandLockup() {
   return (
@@ -13,6 +13,7 @@ export function BrandLockup() {
       />
       <View style={styles.copy}>
         <Text style={styles.title}>MyDTC</Text>
+        <View style={styles.rule} />
         <Text style={styles.tagline}>{TAGLINE}</Text>
       </View>
     </View>
@@ -23,6 +24,14 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12 },
   logo: { width: 72, height: 72, borderRadius: 16 },
   copy: { flex: 1 },
-  title: { fontSize: 28, fontWeight: "800", color: "#102A43" },
-  tagline: { marginTop: 2, color: "#0F6E56", fontSize: 14, lineHeight: 19, fontWeight: "600" },
+  title: { fontSize: 28, fontWeight: "800", color: "#102A43", letterSpacing: -0.4 },
+  rule: { width: 36, height: 3, borderRadius: 2, backgroundColor: "#FF5A45", marginTop: 6 },
+  tagline: {
+    marginTop: 6,
+    color: "#0F6E56",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+    letterSpacing: 0.15,
+  },
 });
