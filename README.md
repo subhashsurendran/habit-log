@@ -34,7 +34,7 @@ Habit names stay on the left. Days 1–31 scroll across the top.
 - A tick cycles blank, tick, cross. Hold the cell for a short note. A timer shows a clock such as 6:30 AM, and you can switch AM and PM. It never shows a tick.
 - A journal cell opens a page for a note, one photo, or "Wrote it in my diary".
 - Tick and timer rows can store a follow-up a whole number of hours after the mark. 8 hours is the shortcut. The browser keeps that number and does not notify you.
-- Wrap up day sits next to Add row. It fills today's empty miss-rows with a cross. Earlier empty miss-rows wrap when the month opens. Marks already made stay put.
+- Wrap up day sits next to Add row. It fills today's empty miss-rows with a cross and locks the rows. Earlier empty miss-rows wrap when the month opens. Marks already made stay put. Unlock rows if you still need a change.
 - Each row says "Empty day counts as a miss." That is on by default. The cell stays blank until wrap-up. Turn it off and a blank is not a miss.
 - Tags are short labels on the row. They do not change the cell.
 

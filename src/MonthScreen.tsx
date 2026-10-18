@@ -165,16 +165,19 @@ export function MonthScreen() {
             style={[styles.button, styles.buttonOn]}
             testID="wrap-today"
             onPress={() => {
-              void enqueue((database) =>
-                wrapToday(database, month.id, month.year, month.month),
-              ).catch(() => undefined);
+              void enqueue(async (database) => {
+                await wrapToday(database, month.id, month.year, month.month);
+                await setLocked(database, month.id, true);
+              }).catch(() => undefined);
             }}
           >
             <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
           </Pressable>
         </View>
         <Text style={styles.hint}>
-          {month.locked ? "Rows are locked. You can still mark days." : "Wrap up day fills empty misses for today."}
+          {month.locked
+            ? "Today is wrapped and locked. Unlock rows if you still need a change."
+            : "Wrap up day closes today and locks the rows."}
         </Text>
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
       </View>
@@ -226,6 +229,7 @@ export function MonthScreen() {
                         height={rowHeight(habit.entry)}
                         isToday={todayDay === day}
                         onPress={() => {
+                          if (month.locked) return;
                           if (habit.entry === "timer") {
                             setTimeEdit({ mode: "cell", habit, day });
                             return;
@@ -256,6 +260,7 @@ export function MonthScreen() {
                           }).catch(() => undefined);
                         }}
                         onLongPress={() => {
+                          if (month.locked) return;
                           if (habit.entry === "tick") setNoteEdit({ habit, day });
                         }}
                       />
@@ -586,7 +591,26 @@ function AddDialog({
   const reserved = isReservedTimeName(name);
   const entry: Entry = reserved ? "timer" : chosen;
   return (
-    <Dialog title="Add row" onClose={onClose}>
+    <Dialog
+      title="Add row"
+      onClose={onClose}
+      footer={
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.button, styles.buttonOn]}
+            testID="add-save"
+            onPress={() => {
+              void onSave(name, entry, tags).catch((error: unknown) => setMessage(errorText(error)));
+            }}
+          >
+            <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={onClose}>
+            <Text style={styles.buttonText}>Cancel</Text>
+          </Pressable>
+        </View>
+      }
+    >
       <View style={styles.actions}>
         {ADD_PRESETS.map((preset) => (
           <Pressable
@@ -672,20 +696,6 @@ function AddDialog({
         </Pressable>
       </View>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
-      <View style={styles.actions}>
-        <Pressable
-          style={styles.button}
-          testID="add-save"
-          onPress={() => {
-            void onSave(name, entry, tags).catch((error: unknown) => setMessage(errorText(error)));
-          }}
-        >
-          <Text style={styles.buttonText}>Save</Text>
-        </Pressable>
-        <Pressable style={styles.button} onPress={onClose}>
-          <Text style={styles.buttonText}>Cancel</Text>
-        </Pressable>
-      </View>
     </Dialog>
   );
 }
@@ -730,7 +740,39 @@ function RenameDialog({
       ? formatClock12(habit.reminderHour, habit.reminderMinute)
       : "None";
   return (
-    <Dialog title={habit.name} onClose={onClose}>
+    <Dialog
+      title={habit.name}
+      onClose={onClose}
+      footer={
+        <View style={styles.actions}>
+          <Pressable
+            style={[styles.button, styles.buttonOn]}
+            onPress={() => {
+              void onSave(name).catch((error: unknown) => setMessage(errorText(error)));
+            }}
+          >
+            <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+          </Pressable>
+          {confirmRemove ? (
+            <Pressable
+              style={styles.button}
+              onPress={() => {
+                void onRemove().catch((error: unknown) => setMessage(errorText(error)));
+              }}
+            >
+              <Text style={styles.buttonText}>Confirm remove</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={styles.button} onPress={() => setConfirmRemove(true)}>
+              <Text style={styles.buttonText}>Remove</Text>
+            </Pressable>
+          )}
+          <Pressable style={styles.button} onPress={onClose}>
+            <Text style={styles.buttonText}>Cancel</Text>
+          </Pressable>
+        </View>
+      }
+    >
       <Text style={styles.fieldLabel}>Name</Text>
       <TextInput
         testID="rename-input"
@@ -817,33 +859,6 @@ function RenameDialog({
         </Pressable>
       </View>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
-      <View style={styles.actions}>
-        <Pressable
-          style={[styles.button, styles.buttonOn]}
-          onPress={() => {
-            void onSave(name).catch((error: unknown) => setMessage(errorText(error)));
-          }}
-        >
-          <Text style={[styles.buttonText, styles.buttonOnText]}>Save name</Text>
-        </Pressable>
-        {confirmRemove ? (
-          <Pressable
-            style={styles.button}
-            onPress={() => {
-              void onRemove().catch((error: unknown) => setMessage(errorText(error)));
-            }}
-          >
-            <Text style={styles.buttonText}>Confirm remove</Text>
-          </Pressable>
-        ) : (
-          <Pressable style={styles.button} onPress={() => setConfirmRemove(true)}>
-            <Text style={styles.buttonText}>Remove</Text>
-          </Pressable>
-        )}
-        <Pressable style={styles.button} onPress={onClose}>
-          <Text style={styles.buttonText}>Close</Text>
-        </Pressable>
-      </View>
     </Dialog>
   );
 }
@@ -1077,17 +1092,22 @@ function Dialog({
   title,
   onClose,
   children,
+  footer,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  footer?: ReactNode;
 }) {
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <View style={styles.modalCard}>
           <Text style={styles.modalTitle}>{title}</Text>
-          {children}
+          <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+            {children}
+          </ScrollView>
+          {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
         </View>
       </View>
     </Modal>
@@ -1215,8 +1235,11 @@ const styles = StyleSheet.create({
     padding: 16,
     maxWidth: 460,
     width: "100%",
+    maxHeight: "88%",
     alignSelf: "center",
   },
+  modalBody: { flexShrink: 1 },
+  modalFooter: { paddingTop: 12, borderTopWidth: 1, borderTopColor: "#d3cdc2" },
   modalTitle: { fontSize: 18, fontWeight: "700", color: "#1c2834", marginBottom: 8 },
   input: {
     borderWidth: 1,
