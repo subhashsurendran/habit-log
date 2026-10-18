@@ -594,13 +594,21 @@ function AddDialog({
             testID={`preset-${preset.name.toLowerCase()}`}
             style={styles.button}
             onPress={() => {
-              setName(preset.name);
               setChosen("tick");
-              setTags([preset.tag]);
+              setTags((current) =>
+                normalizeTags([
+                  ...current.filter(
+                    (tag) => !ADD_PRESETS.some((item) => item.tag.toLowerCase() === tag.toLowerCase()),
+                  ),
+                  preset.tag,
+                ]),
+              );
               setMessage(null);
             }}
           >
-            <Text style={styles.buttonText}>{preset.name}</Text>
+            <Text style={styles.buttonText}>
+              {preset.name} · {preset.tag}
+            </Text>
           </Pressable>
         ))}
       </View>
@@ -634,7 +642,7 @@ function AddDialog({
       <Text style={styles.hint}>
         {reserved
           ? "Wake up and Sleep Time are timer rows."
-          : "Medicine starts with tablets. Supplement starts with fitness. Remove a tag if you do not want it."}
+          : "Medicine adds the tag tablets. Supplement adds the tag fitness. The row name stays what you type."}
       </Text>
       <Text style={styles.fieldLabel}>Tags</Text>
       <View style={styles.chips}>

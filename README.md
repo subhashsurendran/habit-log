@@ -30,7 +30,7 @@ Scan the QR code. Marks stay in a database on that device. There is no account a
 
 Habit names stay on the left. Days 1–31 scroll across the top.
 
-- Add a row as Tick, Timer, or Journal. Wake up is a timer. Meditation and Reading stay ticks. Medicine and Supplement are tick presets with a starting tag you can remove.
+- Add a row as Tick, Timer, or Journal. Wake up is a timer. Meditation and Reading stay ticks. Medicine and Supplement add a starting tag (tablets or fitness) and do not change the row name.
 - A tick cycles blank, tick, cross. Hold the cell for a short note. A timer shows a clock such as 6:30 AM, and you can switch AM and PM. It never shows a tick.
 - A journal cell opens a page for a note, one photo, or "Wrote it in my diary".
 - Tick and timer rows can store a follow-up a whole number of hours after the mark. 8 hours is the shortcut. The browser keeps that number and does not notify you.
