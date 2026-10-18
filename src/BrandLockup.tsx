@@ -82,8 +82,8 @@ const styles = StyleSheet.create({
   wordmark: { marginTop: 16, fontSize: 40, fontWeight: "800", letterSpacing: -0.6 },
   my: { color: "#3DDC97" },
   dtc: {
-    color: "#FFE56A",
-    textShadowColor: "rgba(255, 248, 210, 0.95)",
+    color: "#D4C6F5",
+    textShadowColor: "rgba(205, 182, 255, 0.35)",
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 3,
   },
