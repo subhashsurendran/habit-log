@@ -3,7 +3,6 @@ import {
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,7 +26,7 @@ import {
   clearCell,
   cycleTick,
   moveHabit,
-  closeAppDatabase,
+  listPastMonths,
   openMonth,
   openAppDatabase,
   removeHabit,
@@ -43,6 +42,7 @@ import {
   setTickNote,
   setTime,
   wrapToday,
+  type StoredMonth,
 } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
@@ -51,8 +51,6 @@ import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
-import { BrandLockup } from "./BrandLockup";
-import { scoreMonth } from "./score";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
@@ -85,7 +83,17 @@ function rowHeight(_entry: Entry): number {
   return ROW_H;
 }
 
-export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () => void }) {
+export function MonthScreen({
+  monthId,
+  showPast = false,
+  onOpenPast,
+  bindBack,
+}: {
+  monthId: string;
+  showPast?: boolean;
+  onOpenPast?: (monthId: string) => void;
+  bindBack?: (handler: (() => boolean) | null) => void;
+}) {
   const windowWidth = useWindowDimensions().width;
   const dbRef = useRef<SQLiteDatabase | null>(null);
   const queue = useRef(Promise.resolve());
@@ -102,7 +110,9 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
   const [checklistEdit, setChecklistEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [noteEdit, setNoteEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<Habit | null>(null);
-  const [scoreOpen, setScoreOpen] = useState(false);
+  const [past, setPast] = useState<StoredMonth[]>([]);
+  const checklistRef = useRef(checklistEdit);
+  checklistRef.current = checklistEdit;
 
   useEffect(() => {
     let live = true;
@@ -120,9 +130,34 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
     return () => {
       live = false;
       dbRef.current = null;
-      void closeAppDatabase(queue.current);
     };
   }, [monthId]);
+
+  useEffect(() => {
+    if (!bindBack) return;
+    bindBack(() => {
+      if (!checklistRef.current) return false;
+      setChecklistEdit(null);
+      return true;
+    });
+    return () => bindBack(null);
+  }, [bindBack]);
+
+  useEffect(() => {
+    if (!showPast) return;
+    let live = true;
+    openAppDatabase()
+      .then((database) => listPastMonths(database))
+      .then((rows) => {
+        if (live) setPast(rows);
+      })
+      .catch(() => {
+        if (live) setPast([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [showPast]);
 
   const records = useMemo(() => {
     const map = new Map<string, DayRecord>();
@@ -151,18 +186,16 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
 
   if (fatal) {
     return (
-      <SafeAreaView style={styles.screen}>
-        <BrandLockup />
+      <View style={styles.screen}>
         <Text style={styles.hint}>{fatal}</Text>
-      </SafeAreaView>
+      </View>
     );
   }
   if (!month) {
     return (
-      <SafeAreaView style={styles.screen}>
-        <BrandLockup />
+      <View style={styles.screen}>
         <Text style={styles.hint}>Opening the month…</Text>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -172,16 +205,6 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
       ? today.getDate()
       : null;
   const days = Array.from({ length: daysInMonth(month.year, month.month) }, (_, index) => index + 1);
-  const todayStamp = dateFor(today.getFullYear(), today.getMonth() + 1, today.getDate());
-  const score = scoreMonth({
-    year: month.year,
-    month: month.month,
-    today: todayStamp,
-    startedOn: month.startedOn,
-    wrappedDates: month.wrappedDates,
-    habits: month.habits,
-    records: month.records,
-  });
   const editingHabit = renameTarget
     ? (month.habits.find((habit) => habit.id === renameTarget.id) ?? null)
     : null;
@@ -202,16 +225,47 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
     });
   }
 
-  return (
-    <SafeAreaView style={styles.screen} testID="month-grid">
-      <View style={styles.brandBlock}>
-        <BrandLockup />
+  if (checklistEdit) {
+    return (
+      <View style={styles.screen} testID="month-grid">
+        <ChecklistDialog
+          habit={checklistEdit.habit}
+          day={checklistEdit.day}
+          items={
+            records.get(
+              `${checklistEdit.habit.id}|${dateFor(month.year, month.month, checklistEdit.day)}`,
+            )?.checklist ?? []
+          }
+          othersOnDay={otherChecklistItems(
+            month.habits,
+            records,
+            dateFor(month.year, month.month, checklistEdit.day),
+            checklistEdit.habit.id,
+          )}
+          onClose={() => setChecklistEdit(null)}
+          onSave={async (items) => {
+            await enqueue((database) =>
+              saveChecklist(
+                database,
+                month.id,
+                checklistEdit.habit.id,
+                month.year,
+                month.month,
+                checklistEdit.day,
+                items,
+              ),
+            );
+            setChecklistEdit(null);
+          }}
+        />
       </View>
+    );
+  }
+
+  return (
+    <View style={styles.screen} testID="month-grid">
       <View style={styles.controls}>
         <View style={styles.actions}>
-          <Pressable style={styles.button} testID="home-button" onPress={onHome}>
-            <Text style={styles.buttonText}>Home</Text>
-          </Pressable>
           {month.locked ? null : (
             <Pressable style={styles.button} onPress={() => setAddOpen(true)} testID="add-row">
               <Text style={styles.buttonText}>Add row</Text>
@@ -240,14 +294,26 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
           >
             <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
           </Pressable>
-          <Pressable style={styles.button} testID="month-score" onPress={() => setScoreOpen(true)}>
-            <Text style={styles.buttonText}>Month score</Text>
-          </Pressable>
         </View>
-        <Text style={styles.quiet}>
-          {month.locked ? "Rows are locked." : "Wrap up day closes today."}
-        </Text>
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
+        {showPast ? (
+          <View style={styles.pastRow} testID="past-months">
+            {past.length ? (
+              past.map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={styles.button}
+                  testID={`past-month-${item.id}`}
+                  onPress={() => onOpenPast?.(item.id)}
+                >
+                  <Text style={styles.buttonText}>{monthTitle(item.year, item.month)}</Text>
+                </Pressable>
+              ))
+            ) : (
+              <Text style={styles.quiet}>No past months yet.</Text>
+            )}
+          </View>
+        ) : null}
       </View>
       <View style={styles.monthBar}>
         <Text style={styles.month} testID="month-title">
@@ -601,38 +667,6 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
           }}
         />
       ) : null}
-      {checklistEdit ? (
-        <ChecklistDialog
-          habit={checklistEdit.habit}
-          day={checklistEdit.day}
-          items={
-            records.get(
-              `${checklistEdit.habit.id}|${dateFor(month.year, month.month, checklistEdit.day)}`,
-            )?.checklist ?? []
-          }
-          othersOnDay={otherChecklistItems(
-            month.habits,
-            records,
-            dateFor(month.year, month.month, checklistEdit.day),
-            checklistEdit.habit.id,
-          )}
-          onClose={() => setChecklistEdit(null)}
-          onSave={async (items) => {
-            await enqueue((database) =>
-              saveChecklist(
-                database,
-                month.id,
-                checklistEdit.habit.id,
-                month.year,
-                month.month,
-                checklistEdit.day,
-                items,
-              ),
-            );
-            setChecklistEdit(null);
-          }}
-        />
-      ) : null}
       {noteEdit ? (
         <NoteDialog
           habit={noteEdit.habit}
@@ -658,53 +692,6 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
           }}
         />
       ) : null}
-      {scoreOpen ? (
-        <Dialog
-          title="Month score"
-          onClose={() => setScoreOpen(false)}
-          footer={
-            <Pressable style={styles.button} testID="score-close" onPress={() => setScoreOpen(false)}>
-              <Text style={styles.buttonText}>Close</Text>
-            </Pressable>
-          }
-        >
-          <ScoreBody score={score} />
-        </Dialog>
-      ) : null}
-    </SafeAreaView>
-  );
-}
-
-function ScoreBody({ score }: { score: ReturnType<typeof scoreMonth> }) {
-  return (
-    <View testID="month-score-screen">
-      {score.percent == null ? (
-        <Text style={styles.hint} testID="score-empty">
-          No closed days yet
-        </Text>
-      ) : (
-        <View>
-          <Text style={styles.scorePercent} testID="score-percent">
-            {score.percent}%
-          </Text>
-          <Text style={styles.hint} testID="score-done">
-            Done {score.done}
-          </Text>
-          <Text style={styles.hint} testID="score-miss">
-            Miss {score.miss}
-          </Text>
-        </View>
-      )}
-      <Text style={styles.fieldLabel}>Focus</Text>
-      {score.focus.length ? (
-        score.focus.map((item, index) => (
-          <Text key={item.label} style={styles.hint} testID={`score-focus-${index}`}>
-            {item.label} · {item.misses}
-          </Text>
-        ))
-      ) : (
-        <Text style={styles.hint}>None yet</Text>
-      )}
     </View>
   );
 }
@@ -1534,82 +1521,81 @@ function ChecklistDialog({
   }
 
   return (
-    <Dialog
-      title={`${habit.name} · day ${day}`}
-      onClose={onClose}
-      footer={
-        <View style={styles.actions}>
-          {ask === "over-3" ? (
-            <>
-              <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-3-yes" onPress={confirmOver3}>
-                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, add another</Text>
+    <View style={styles.sheet} testID="checklist-sheet">
+      <Text style={styles.month} accessibilityRole="header">
+        {habit.name}
+      </Text>
+      <ScrollView style={styles.sheetBody} keyboardShouldPersistTaps="handled">
+        {ask === "over-3" ? (
+          <Text style={styles.ask} testID="ask-over-3">
+            You already have 3 tasks. Can you complete all of them today?
+          </Text>
+        ) : null}
+        {ask === "over-12" ? (
+          <Text style={styles.ask} testID="ask-over-12">
+            This day has {dayTotal} tasks. Can you finish this many in a day?
+          </Text>
+        ) : null}
+        {lines.map((line, index) => (
+          <View key={index} style={styles.checkRow}>
+            <Pressable
+              testID={`check-done-${index}`}
+              style={styles.button}
+              onPress={() => setLine(index, { done: !line.done })}
+            >
+              <Text style={styles.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
+            </Pressable>
+            <TextInput
+              testID={`check-text-${index}`}
+              value={line.text}
+              onChangeText={(text) => setLine(index, { text })}
+              placeholder={`Subtask ${index + 1}`}
+              placeholderTextColor="#B7A8C9"
+              maxLength={CHECK_ITEM_MAX}
+              autoCorrect={false}
+              style={[styles.input, styles.checkInput]}
+            />
+          </View>
+        ))}
+        {lines.length >= CHECKLIST_MAX ? <Text style={styles.hint}>This list holds 24 tasks.</Text> : null}
+        {message ? <Text style={styles.banner}>{message}</Text> : null}
+      </ScrollView>
+      <View style={styles.actions}>
+        {ask === "over-3" ? (
+          <>
+            <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-3-yes" onPress={confirmOver3}>
+              <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, add another</Text>
+            </Pressable>
+            <Pressable style={styles.button} testID="confirm-over-3-no" onPress={() => setAsk(null)}>
+              <Text style={styles.buttonText}>Keep 3</Text>
+            </Pressable>
+          </>
+        ) : ask === "over-12" ? (
+          <>
+            <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-12-yes" onPress={confirmOver12}>
+              <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, keep them</Text>
+            </Pressable>
+            <Pressable style={styles.button} testID="confirm-over-12-no" onPress={() => setAsk(null)}>
+              <Text style={styles.buttonText}>Not now</Text>
+            </Pressable>
+          </>
+        ) : (
+          <>
+            {lines.length >= CHECKLIST_MAX ? null : (
+              <Pressable style={styles.button} testID="add-checklist-item" onPress={addLine}>
+                <Text style={styles.buttonText}>Add a subtask</Text>
               </Pressable>
-              <Pressable style={styles.button} testID="confirm-over-3-no" onPress={() => setAsk(null)}>
-                <Text style={styles.buttonText}>Keep 3</Text>
-              </Pressable>
-            </>
-          ) : ask === "over-12" ? (
-            <>
-              <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-12-yes" onPress={confirmOver12}>
-                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, keep them</Text>
-              </Pressable>
-              <Pressable style={styles.button} testID="confirm-over-12-no" onPress={() => setAsk(null)}>
-                <Text style={styles.buttonText}>Not now</Text>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              {lines.length >= CHECKLIST_MAX ? null : (
-                <Pressable style={styles.button} testID="add-checklist-item" onPress={addLine}>
-                  <Text style={styles.buttonText}>Add a subtask</Text>
-                </Pressable>
-              )}
-              <Pressable style={[styles.button, styles.buttonOn]} testID="checklist-save" onPress={save}>
-                <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
-              </Pressable>
-              <Pressable style={styles.button} onPress={onClose}>
-                <Text style={styles.buttonText}>Cancel</Text>
-              </Pressable>
-            </>
-          )}
-        </View>
-      }
-    >
-      <Text style={styles.quiet}>The cell shows how many are done, such as 2/3.</Text>
-      {ask === "over-3" ? (
-        <Text style={styles.ask} testID="ask-over-3">
-          You already have 3 tasks. Can you complete all of them today?
-        </Text>
-      ) : null}
-      {ask === "over-12" ? (
-        <Text style={styles.ask} testID="ask-over-12">
-          This day has {dayTotal} tasks. Can you finish this many in a day?
-        </Text>
-      ) : null}
-      {lines.map((line, index) => (
-        <View key={index} style={styles.checkRow}>
-          <Pressable
-            testID={`check-done-${index}`}
-            style={styles.button}
-            onPress={() => setLine(index, { done: !line.done })}
-          >
-            <Text style={styles.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
-          </Pressable>
-          <TextInput
-            testID={`check-text-${index}`}
-            value={line.text}
-            onChangeText={(text) => setLine(index, { text })}
-            placeholder={`Subtask ${index + 1}`}
-            placeholderTextColor="#B7A8C9"
-            maxLength={CHECK_ITEM_MAX}
-            autoCorrect={false}
-            style={[styles.input, styles.checkInput]}
-          />
-        </View>
-      ))}
-      {lines.length >= CHECKLIST_MAX ? <Text style={styles.hint}>This list holds 24 tasks.</Text> : null}
-      {message ? <Text style={styles.banner}>{message}</Text> : null}
-    </Dialog>
+            )}
+            <Pressable style={[styles.button, styles.buttonOn]} testID="checklist-save" onPress={save}>
+              <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+            </Pressable>
+            <Pressable style={styles.button} onPress={onClose}>
+              <Text style={styles.buttonText}>Cancel</Text>
+            </Pressable>
+          </>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -1704,11 +1690,13 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, backgroundColor: "#16121C" },
-  brandBlock: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
-  controls: { paddingHorizontal: 16, marginTop: 24 },
-  monthBar: { paddingHorizontal: 16, marginTop: 24, marginBottom: 12 },
+  controls: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
+  pastRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  monthBar: { paddingHorizontal: 16, marginTop: 16, marginBottom: 8 },
+  sheet: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
+  sheetBody: { flex: 1, minHeight: 0 },
   scorePercent: { fontSize: 40, fontWeight: "800", color: "#F6F1FF" },
-  month: { fontSize: 17, color: "#F6F1FF", fontWeight: "600" },
+  month: { fontSize: 22, color: "#F6F1FF", fontWeight: "700", lineHeight: 28 },
   hint: { marginTop: 8, color: "#D9CCEA", fontSize: 13, lineHeight: 18 },
   quiet: { marginTop: 8, color: "#8E819C", fontSize: 13, lineHeight: 18 },
   ask: { marginTop: 12, color: "#F6F1FF", fontSize: 16, lineHeight: 22, fontWeight: "700" },

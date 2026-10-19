@@ -20,6 +20,7 @@ export function BrandLockup() {
           <Text style={[styles.climbMark, styles.climbMid]}>✓</Text>
           <Text style={[styles.climbMark, styles.climbHigh]}>✓</Text>
         </View>
+        <View style={styles.gloss} />
       </View>
       <Text style={styles.wordmark} testID="mydtc-wordmark">
         <Text style={styles.my} testID="mydtc-my">
@@ -58,6 +59,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+    overflow: "hidden",
+  },
+  gloss: {
+    position: "absolute",
+    top: 0,
+    left: 10,
+    right: 10,
+    height: 16,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.16)",
   },
   card: {
     width: 42,
@@ -82,10 +94,10 @@ const styles = StyleSheet.create({
   wordmark: { marginTop: 16, fontSize: 40, fontWeight: "800", letterSpacing: -0.6 },
   my: { color: "#3DDC97" },
   dtc: {
-    color: "#D4C6F5",
-    textShadowColor: "rgba(205, 182, 255, 0.35)",
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 3,
+    color: "#F6D45A",
+    textShadowColor: "rgba(255, 248, 214, 0.95)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   tagline: {
     marginTop: 8,

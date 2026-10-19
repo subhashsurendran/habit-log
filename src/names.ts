@@ -18,6 +18,22 @@ export function validateName(raw: string): string {
   return name;
 }
 
+export function validateCallName(raw: string): string {
+  const name = cleanName(raw);
+  if (!name) throw new Error("Give a name.");
+  if (name.length > NAME_MAX) throw new Error("Use 40 characters or fewer.");
+  return name;
+}
+
+export function callNameOrNull(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    return validateCallName(value);
+  } catch {
+    return null;
+  }
+}
+
 export function entryForName(name: string, chosen: Entry): Entry {
   if (isReservedTimeName(name)) return "timer";
   return chosen;

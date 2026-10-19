@@ -1,6 +1,6 @@
 import { dateFor, daysInMonth } from "./month";
 import { shownMark } from "./tally";
-import type { CheckItem, Entry } from "./types";
+import type { CheckItem, Entry, MonthState } from "./types";
 
 export type ScoreFocus = {
   label: string;
@@ -84,6 +84,18 @@ function focusLabels(habit: ScoreHabit): string[] {
   if (tags.length) return [...tags];
   const name = habit.name.trim();
   return name ? [name] : [];
+}
+
+export function scoreStoredMonth(month: MonthState, now = new Date()): MonthScore {
+  return scoreMonth({
+    year: month.year,
+    month: month.month,
+    today: dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate()),
+    startedOn: month.startedOn,
+    wrappedDates: month.wrappedDates,
+    habits: month.habits,
+    records: month.records,
+  });
 }
 
 export function scoreMonth(input: ScoreInput): MonthScore {

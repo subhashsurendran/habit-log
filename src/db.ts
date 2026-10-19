@@ -236,6 +236,10 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
       PRIMARY KEY (month_id, date)
     );
     CREATE INDEX IF NOT EXISTS habits_month_order ON habits (month_id, sort_order);
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY CHECK (length(key) BETWEEN 1 AND 32),
+      value TEXT NOT NULL CHECK (length(value) <= 80)
+    );
     CREATE TABLE IF NOT EXISTS templates (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL CHECK (length(name) > 0 AND length(name) <= 40)
@@ -342,12 +346,36 @@ async function openMonthNow(db: SQLiteDatabase, monthId: string, now = new Date(
 }
 
 export type StoredMonth = { id: string; year: number; month: number };
-export type HabitTemplate = { id: string; name: string };
+export type HabitTemplate = {
+  id: string;
+  name: string;
+  habits: { name: string; entry: Entry }[];
+};
+export type TemplateDraft = {
+  name: string;
+  entry: Entry;
+  tags: readonly string[];
+};
+export const DISPLAY_NAME_KEY = "display_name";
+export const SOUND_MUTED_KEY = "sound_muted";
+const SETTING_KEY = /^[a-z0-9_]{1,32}$/;
+const TEMPLATE_ROW_MAX = 40;
 export type DashboardState = {
   current: MonthState;
   past: StoredMonth[];
   templates: HabitTemplate[];
 };
+
+export function listPastMonths(db: SQLiteDatabase, now = new Date()): Promise<StoredMonth[]> {
+  return withDbLock(async () => {
+    const current = currentMonth(now);
+    const past = await db.getAllAsync<{ id: string; year: number; month: number }>(
+      "SELECT id, year, month FROM months WHERE id != ? ORDER BY id DESC",
+      current.id,
+    );
+    return past.map((row) => ({ id: row.id, year: Number(row.year), month: Number(row.month) }));
+  });
+}
 
 export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<DashboardState> {
   return withDbLock(async () => {
@@ -359,20 +387,60 @@ export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<Das
     const templates = await db.getAllAsync<{ id: string; name: string }>(
       "SELECT id, name FROM templates ORDER BY name COLLATE NOCASE ASC, id ASC",
     );
+    const templateRows = await db.getAllAsync<{
+      template_id: string;
+      name: string;
+      entry: string;
+    }>(
+      `SELECT template_id, name, entry
+       FROM template_rows
+       ORDER BY sort_order ASC, id ASC`,
+    );
+    const habitsByTemplate = new Map<string, { name: string; entry: Entry }[]>();
+    for (const row of templateRows) {
+      const list = habitsByTemplate.get(row.template_id) ?? [];
+      list.push({ name: row.name, entry: asEntry(row.entry) });
+      habitsByTemplate.set(row.template_id, list);
+    }
     return {
       current,
       past: past.map((row) => ({ id: row.id, year: Number(row.year), month: Number(row.month) })),
-      templates,
+      templates: templates.map((template) => ({
+        id: template.id,
+        name: template.name,
+        habits: habitsByTemplate.get(template.id) ?? [],
+      })),
     };
   });
 }
 
-export function saveHabitTemplate(
+export function readSetting(db: SQLiteDatabase, key: string): Promise<string | null> {
+  if (!SETTING_KEY.test(key)) return Promise.resolve(null);
+  return withDbLock(async () => {
+    const row = await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = ?", key);
+    return row?.value ?? null;
+  });
+}
+
+export function writeSetting(db: SQLiteDatabase, key: string, value: string): Promise<void> {
+  if (!SETTING_KEY.test(key) || value.length > 80) {
+    return Promise.reject(new Error("Could not store that on this device."));
+  }
+  return withDbLock(() =>
+    db.runAsync(
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      key,
+      value,
+    ),
+  ).then(() => undefined);
+}
+
+export function createHabitTemplate(
   db: SQLiteDatabase,
-  monthId: string,
   rawName: string,
+  drafts: readonly TemplateDraft[],
 ): Promise<void> {
-  return withDbLock(() => saveHabitTemplateNow(db, monthId, rawName));
+  return withDbLock(() => createHabitTemplateNow(db, rawName, drafts));
 }
 
 export function startMonthFromTemplate(
@@ -383,52 +451,39 @@ export function startMonthFromTemplate(
   return withDbLock(() => startMonthFromTemplateNow(db, templateId, now));
 }
 
-async function saveHabitTemplateNow(db: SQLiteDatabase, monthIdValue: string, rawName: string): Promise<void> {
-  const parsed = assertMonthId(monthIdValue);
+async function createHabitTemplateNow(
+  db: SQLiteDatabase,
+  rawName: string,
+  drafts: readonly TemplateDraft[],
+): Promise<void> {
   const name = templateName(rawName);
-  const habits = await db.getAllAsync<{
-    name: string;
-    sort_order: number;
-    entry: string;
-    blank_counts_as_miss: number;
-    reminder_hour: number | null;
-    reminder_minute: number | null;
-    tags: string | null;
-  }>(
-    `SELECT name, sort_order, entry, blank_counts_as_miss, reminder_hour, reminder_minute, tags
-     FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC`,
-    parsed.id,
-  );
-  if (!habits.length) throw new Error("Add a row before saving a list.");
+  if (!drafts.length) throw new Error("Add a habit before saving.");
+  if (drafts.length > TEMPLATE_ROW_MAX) throw new Error("A template holds 40 habits.");
+  const rows = drafts.map((draft, index) => {
+    const habitName = validateName(draft.name);
+    const entry = entryForName(habitName, chosenEntry(draft.entry));
+    return { habitName, entry, tags: normalizeTags(draft.tags), index };
+  });
   const existing = await db.getFirstAsync<{ id: string }>(
     "SELECT id FROM templates WHERE lower(name) = lower(?)",
     name,
   );
+  if (existing) throw new Error("That name is already saved.");
+  const templateId = createId();
   await db.withTransactionAsync(async () => {
-    const templateId = existing?.id ?? createId();
-    if (existing) {
-      await db.runAsync("UPDATE templates SET name = ? WHERE id = ?", name, templateId);
-      await db.runAsync("DELETE FROM template_rows WHERE template_id = ?", templateId);
-    } else {
-      await db.runAsync("INSERT INTO templates (id, name) VALUES (?, ?)", templateId, name);
-    }
-    for (const habit of habits) {
-      const entry = asEntry(habit.entry);
-      const reminder = entry === "timer" ? reminderPair(habit.reminder_hour, habit.reminder_minute) : null;
+    await db.runAsync("INSERT INTO templates (id, name) VALUES (?, ?)", templateId, name);
+    for (const row of rows) {
       await db.runAsync(
         `INSERT INTO template_rows (
            id, template_id, name, sort_order, entry, blank_counts_as_miss,
            reminder_hour, reminder_minute, tags
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, 1, NULL, NULL, ?)`,
         createId(),
         templateId,
-        habit.name,
-        Number(habit.sort_order),
-        entry,
-        Number(habit.blank_counts_as_miss) === 0 ? 0 : 1,
-        reminder?.hour ?? null,
-        reminder?.minute ?? null,
-        JSON.stringify(parseStoredTags(habit.tags)),
+        row.habitName,
+        row.index,
+        row.entry,
+        JSON.stringify(row.tags),
       );
     }
   });
@@ -1135,6 +1190,11 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
       return [record];
     }),
   };
+}
+
+function chosenEntry(value: string): Entry {
+  if (value === "tick" || value === "timer" || value === "journal" || value === "checklist") return value;
+  throw new Error("Choose tick, timer, journal, or checklist.");
 }
 
 function asEntry(value: string): Entry {
