@@ -24,6 +24,7 @@ export function HomeScreen({
   onOpenToday,
   onAddHabit,
   onOpenMonth,
+  onOpenScore,
   onGesture,
 }: {
   name: string | null;
@@ -31,6 +32,7 @@ export function HomeScreen({
   onOpenToday: () => void;
   onAddHabit: () => void;
   onOpenMonth: (monthId: string) => void;
+  onOpenScore: () => void;
   onGesture: () => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -143,13 +145,21 @@ export function HomeScreen({
           </Pressable>
         </View>
       )}
-      <View style={ui.card} testID="home-score">
+      <Pressable
+        style={ui.card}
+        testID="home-score"
+        accessibilityLabel="This month score"
+        onPress={() => {
+          onGesture();
+          onOpenScore();
+        }}
+      >
         <Text style={ui.section}>This month</Text>
         {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
         {!fatal && !score ? <Text style={ui.body}>Opening…</Text> : null}
         {score && score.percent == null ? <Text style={ui.body}>No closed days yet</Text> : null}
         {score && score.percent != null ? <Text style={ui.percent}>{score.percent}%</Text> : null}
-      </View>
+      </Pressable>
       {board && habitCount > 0 && open.length === 0 ? (
         <Text style={ui.quiet} testID="done-for-today">
           Done for today.
@@ -211,7 +221,10 @@ export function HomeScreen({
                 onOpenMonth(month.id);
               }}
             >
-              <Text style={ui.buttonText}>{monthTitle(month.year, month.month)}</Text>
+              <Text style={ui.buttonText}>
+                {monthTitle(month.year, month.month)}
+                {board.sampleMonthId === month.id ? " · Sample" : ""}
+              </Text>
             </Pressable>
           ))}
         </View>

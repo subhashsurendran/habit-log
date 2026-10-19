@@ -38,6 +38,7 @@ import {
   cycleTick,
   EVENING_HOUR_KEY,
   EVENING_MINUTE_KEY,
+  SAMPLE_MONTH_KEY,
   moveHabit,
   openMonth,
   readSetting,
@@ -71,6 +72,7 @@ import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
+import { scoreStoredMonth } from "./score";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 
@@ -106,11 +108,13 @@ export function MonthScreen({
   openAdd = false,
   review = false,
   bindBack,
+  onOpenScore,
 }: {
   monthId: string;
   openAdd?: boolean;
   review?: boolean;
   bindBack?: (handler: (() => boolean) | null) => void;
+  onOpenScore?: () => void;
 }) {
   const windowWidth = useWindowDimensions().width;
   const dbRef = useRef<SQLiteDatabase | null>(null);
@@ -134,6 +138,7 @@ export function MonthScreen({
   const [evening, setEvening] = useState<{ hour: number; minute: number } | null>(null);
   const [eveningOpen, setEveningOpen] = useState(false);
   const [undoReady, setUndoReady] = useState(false);
+  const [sample, setSample] = useState(false);
   const checklistRef = useRef(checklistEdit);
   checklistRef.current = checklistEdit;
 
@@ -144,6 +149,8 @@ export function MonthScreen({
         if (!live) return;
         dbRef.current = database;
         setMonth(await openMonth(database, monthId));
+        const flagged = await readSetting(database, SAMPLE_MONTH_KEY);
+        if (live) setSample(flagged === monthId);
         const hour = await readSetting(database, EVENING_HOUR_KEY);
         const minute = await readSetting(database, EVENING_MINUTE_KEY);
         if (hour != null && minute != null) {
@@ -230,6 +237,7 @@ export function MonthScreen({
     if (tagFilter && !habit.tags.some((tag) => tag.toLowerCase() === tagFilter.toLowerCase())) return false;
     return true;
   });
+  const pastScore = review ? scoreStoredMonth(month) : null;
   const tagChoices = [...new Set(month.habits.flatMap((habit) => habit.tags))];
   const { labelWidth, track, dayWidth } = gridMetrics(windowWidth);
   const bodyHeight = HEADER_H + visibleHabits.reduce((sum, habit) => sum + rowHeight(habit.entry), 0);
@@ -456,6 +464,18 @@ export function MonthScreen({
         <Text style={styles.month} testID="month-title">
           {monthTitle(month.year, month.month)}
         </Text>
+        {sample ? (
+          <Text style={styles.quiet} testID="sample-month">
+            Sample
+          </Text>
+        ) : null}
+        {review && pastScore ? (
+          <Pressable testID="month-score" accessibilityLabel="Month score" onPress={onOpenScore}>
+            <Text style={styles.scorePercent}>
+              {pastScore.percent == null ? "No closed days yet" : `${pastScore.percent}%`}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <ScrollView style={styles.vertical} testID="row-scroll" nestedScrollEnabled>

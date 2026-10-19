@@ -420,12 +420,15 @@ export const DISPLAY_NAME_KEY = "display_name";
 export const SOUND_MUTED_KEY = "sound_muted";
 export const EVENING_HOUR_KEY = "evening_hour";
 export const EVENING_MINUTE_KEY = "evening_minute";
+export const SAMPLE_MONTH_KEY = "sample_month";
+const SAMPLE_MONTH_ID = "2026-09";
 const SETTING_KEY = /^[a-z0-9_]{1,32}$/;
 const TEMPLATE_ROW_MAX = 40;
 export type DashboardState = {
   current: MonthState;
   past: StoredMonth[];
   templates: HabitTemplate[];
+  sampleMonthId: string | null;
 };
 
 export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<DashboardState> {
@@ -461,8 +464,142 @@ export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<Das
         name: template.name,
         habits: habitsByTemplate.get(template.id) ?? [],
       })),
+      sampleMonthId:
+        (
+          await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = ?", SAMPLE_MONTH_KEY)
+        )?.value ?? null,
     };
   });
+}
+
+/** Copies the current habits into September 2026 once. A second launch leaves that month alone. */
+export function ensureSampleSeptember(db: SQLiteDatabase, now = new Date()): Promise<void> {
+  return withDbLock(() => ensureSampleSeptemberNow(db, now));
+}
+
+async function ensureSampleSeptemberNow(db: SQLiteDatabase, now: Date): Promise<void> {
+  const existing = await db.getFirstAsync<{ id: string }>("SELECT id FROM months WHERE id = ?", SAMPLE_MONTH_ID);
+  if (existing) return;
+  const currentId = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  if (currentId === SAMPLE_MONTH_ID) return;
+  const habits = await db.getAllAsync<{
+    name: string;
+    entry: string;
+    blank_counts_as_miss: number;
+    tags: string | null;
+    carry_forward: number | null;
+    pinned: number | null;
+  }>(
+    `SELECT name, entry, blank_counts_as_miss, tags, carry_forward, pinned
+     FROM habits WHERE month_id = ? ORDER BY pinned DESC, sort_order ASC, id ASC`,
+    currentId,
+  );
+  if (!habits.length) return;
+  await db.withTransactionAsync(async () => {
+    const again = await db.getFirstAsync<{ id: string }>("SELECT id FROM months WHERE id = ?", SAMPLE_MONTH_ID);
+    if (again) return;
+    await db.runAsync(
+      "INSERT INTO months (id, year, month, locked, started_on) VALUES (?, 2026, 9, 1, '2026-09-01')",
+      SAMPLE_MONTH_ID,
+    );
+    const lastDay = daysInMonth(2026, 9);
+    for (let index = 0; index < habits.length; index += 1) {
+      const habit = habits[index];
+      if (!habit) continue;
+      const id = `${SAMPLE_MONTH_ID}-sample-${index}`;
+      await db.runAsync(
+        `INSERT INTO habits (
+           id, month_id, name, sort_order, entry, blank_counts_as_miss,
+           follow_up_hours, reminder_hour, reminder_minute, tags, carry_forward, pinned
+         ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?)`,
+        id,
+        SAMPLE_MONTH_ID,
+        habit.name,
+        index,
+        habit.entry,
+        Number(habit.blank_counts_as_miss) === 0 ? 0 : 1,
+        habit.tags ?? "[]",
+        habit.carry_forward == null || Number(habit.carry_forward) !== 0 ? 1 : 0,
+        Number(habit.pinned) === 1 ? 1 : 0,
+      );
+      for (let day = 1; day <= lastDay && day <= 10; day += 1) {
+        await insertSampleMark(db, id, habit.entry, habit.name, dateFor(2026, 9, day), day <= 7 ? "done" : "cross");
+      }
+    }
+    await db.runAsync(
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      SAMPLE_MONTH_KEY,
+      SAMPLE_MONTH_ID,
+    );
+  });
+}
+
+async function insertSampleMark(
+  db: SQLiteDatabase,
+  habitId: string,
+  entry: string,
+  name: string,
+  date: string,
+  kind: "done" | "cross",
+): Promise<void> {
+  if (kind === "cross") {
+    await db.runAsync(
+      `INSERT INTO day_records (
+         habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end, note, photo_path, diary_mark
+       ) VALUES (?, ?, 'cross', 'manual', NULL, NULL, NULL, NULL, NULL, NULL, 0)`,
+      habitId,
+      date,
+    );
+    return;
+  }
+  if (entry === "timer") {
+    const sleep = name.trim().toLowerCase().startsWith("sleep");
+    const hour = sleep ? 22 : 6;
+    const minute = sleep ? 0 : 30;
+    await db.runAsync(
+      `INSERT INTO day_records (
+         habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end, note, photo_path, diary_mark
+       ) VALUES (?, ?, ?, 'manual', ?, ?, NULL, NULL, NULL, NULL, 0)`,
+      habitId,
+      date,
+      formatClock12(hour, minute),
+      hour,
+      minute,
+    );
+    return;
+  }
+  if (entry === "journal") {
+    await db.runAsync(
+      `INSERT INTO day_records (
+         habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end, note, photo_path, diary_mark
+       ) VALUES (?, ?, 'note', 'manual', NULL, NULL, NULL, NULL, 'Sample', NULL, 0)`,
+      habitId,
+      date,
+    );
+    return;
+  }
+  if (entry === "checklist") {
+    const items = [{ text: "Sample", done: true }];
+    await db.runAsync(
+      `INSERT INTO day_records (
+         habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end,
+         note, photo_path, diary_mark, checklist
+       ) VALUES (?, ?, ?, 'manual', NULL, NULL, NULL, NULL, NULL, NULL, 0, ?)`,
+      habitId,
+      date,
+      checklistSummary(items),
+      JSON.stringify(items),
+    );
+    return;
+  }
+  await db.runAsync(
+    `INSERT INTO day_records (
+       habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end, note, photo_path, diary_mark
+     ) VALUES (?, ?, 'tick', 'manual', NULL, NULL, NULL, NULL, ?, NULL, 0)`,
+    habitId,
+    date,
+    date.endsWith("-01") ? "Sample" : null,
+  );
 }
 
 export function readSetting(db: SQLiteDatabase, key: string): Promise<string | null> {

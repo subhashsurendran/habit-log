@@ -4,7 +4,7 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
-import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
+import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, ensureSampleSeptember, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
@@ -23,7 +23,7 @@ type Prefs = { name: string | null; muted: boolean };
 type Place =
   | { kind: "home" }
   | { kind: "today"; openAdd?: boolean }
-  | { kind: "score" }
+  | { kind: "score"; monthId?: string }
   | { kind: "templates" }
   | { kind: "template-editor" }
   | { kind: "month"; monthId: string }
@@ -83,10 +83,11 @@ function Shell() {
         const stored = await readSetting(database, DISPLAY_NAME_KEY);
         const flag = await readSetting(database, SOUND_MUTED_KEY);
         if (flag !== "1") await writeSetting(database, SOUND_MUTED_KEY, "1");
+        const month = await loadMonth(database);
+        await ensureSampleSeptember(database);
         if (!live) return;
         setPrefs({ name: callNameOrNull(stored), muted: true });
         try {
-          const month = await loadMonth(database);
           for (const habit of month.habits) {
             if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
               continue;
@@ -191,6 +192,7 @@ function Shell() {
             onOpenToday={() => push({ kind: "today" })}
             onAddHabit={() => push({ kind: "today", openAdd: true })}
             onOpenMonth={(monthId) => push({ kind: "month", monthId })}
+            onOpenScore={() => push({ kind: "score" })}
             onGesture={onGesture}
           />
         ) : null}
@@ -201,9 +203,12 @@ function Shell() {
             openAdd={place.kind === "today" && place.openAdd === true}
             review={place.kind === "month"}
             bindBack={bindBack}
+            onOpenScore={
+              place.kind === "month" ? () => push({ kind: "score", monthId: place.monthId }) : undefined
+            }
           />
         ) : null}
-        {!fatal && prefs && place.kind === "score" ? <ScoreScreen /> : null}
+        {!fatal && prefs && place.kind === "score" ? <ScoreScreen monthId={place.monthId} /> : null}
         {!fatal && prefs && place.kind === "profile" ? (
           <ProfileScreen
             name={prefs.name}
