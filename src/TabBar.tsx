@@ -2,13 +2,14 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ink } from "./theme";
 
-export type TabId = "home" | "today" | "score" | "templates";
+export type TabId = "home" | "today" | "score" | "templates" | "profile";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "today", label: "Today" },
   { id: "score", label: "Score" },
   { id: "templates", label: "Templates" },
+  { id: "profile", label: "Profile" },
 ];
 
 export function TabBar({
@@ -36,7 +37,9 @@ export function TabBar({
               onChange(item.id);
             }}
           >
-            <Text style={[styles.label, selected && styles.labelOn]}>{item.label}</Text>
+            <Text numberOfLines={1} style={[styles.label, selected && styles.labelOn]}>
+              {item.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -54,6 +57,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   tab: { flex: 1, alignItems: "center", justifyContent: "center", height: 36 },
-  label: { color: ink.quiet, fontSize: 13, fontWeight: "600" },
+  label: { color: ink.quiet, fontSize: 12, fontWeight: "600" },
   labelOn: { color: ink.green },
 });

@@ -12,11 +12,11 @@ npm install
 npm run web
 ```
 
-That opens MyDTC in the browser. Four tabs sit at the bottom: Home, Today, Score, and Templates. Home asks what to call you the first time, then greets you by name. The mark and the tagline stay on Home. Track today opens this month. Back, on every other screen, returns one step. Exit returns to Home. Neither control covers the grid or the tab bar.
+That opens MyDTC in the browser. Five tabs sit at the bottom: Home, Today, Score, Templates, and Profile. Home asks what to call you the first time, then greets you by name. The mark and the tagline stay on Home. Track today opens this month. Back returns one step on Today, Score, and Templates. Exit returns to Home. Profile is a tab, so it has no Back. Neither control covers the grid or the tab bar.
 
 Today is the month grid, with the month and year just above it. Home has Track today and a quiet Add habit, which opens the same add flow as Today. Score is its own tab. Templates lets you name a list, add habits, and save it. Starting a month from a template copies those habits only. Day marks are not part of the template.
 
-Profile opens from Home. It holds the stored name and sound on or off. It is not a tab. No welcome track plays until a local file is added in the app. The name and that choice stay on the device.
+Profile is the last tab. It holds the stored name and sound on or off. No welcome track plays until a local file is added in the app. The name and that choice stay on the device.
 
 Expo 58 asks for Node 22. Node 20 can still start this project. If `npm run web` stops and asks for a newer Node, install Node 22 (`nvm install 22 && nvm use 22`) and run `npm install` again.
 

@@ -20,14 +20,12 @@ export function HomeScreen({
   onName,
   onOpenToday,
   onAddHabit,
-  onOpenProfile,
   onGesture,
 }: {
   name: string | null;
   onName: (name: string) => void;
   onOpenToday: () => void;
   onAddHabit: () => void;
-  onOpenProfile: () => void;
   onGesture: () => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -80,22 +78,7 @@ export function HomeScreen({
       keyboardShouldPersistTaps="handled"
       testID="home-screen"
     >
-      <View>
-        <View style={ui.row}>
-          <View style={{ flex: 1 }} />
-          <Pressable
-            style={ui.button}
-            testID="profile"
-            onPress={() => {
-              onGesture();
-              onOpenProfile();
-            }}
-          >
-            <Text style={ui.buttonText}>Profile</Text>
-          </Pressable>
-        </View>
-        <BrandLockup />
-      </View>
+      <BrandLockup />
       {name ? (
         <Text style={[ui.title, { textAlign: "center" }]} testID="greeting">
           {greetingLine(name)}

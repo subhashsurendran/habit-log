@@ -59,7 +59,8 @@ class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
 }
 
 function tabFor(place: Place): TabId {
-  if (place.kind === "home" || place.kind === "profile") return "home";
+  if (place.kind === "home") return "home";
+  if (place.kind === "profile") return "profile";
   if (place.kind === "score") return "score";
   if (place.kind === "templates" || place.kind === "template-editor") return "templates";
   return "today";
@@ -163,14 +164,15 @@ function Shell() {
             <Text style={styles.body}>Opening…</Text>
           </View>
         ) : null}
-        {!fatal && prefs && place.kind !== "home" ? <ScreenNav onBack={back} onExit={exitHome} /> : null}
+        {!fatal && prefs && place.kind !== "home" && place.kind !== "profile" ? (
+          <ScreenNav onBack={back} onExit={exitHome} />
+        ) : null}
         {!fatal && prefs && place.kind === "home" ? (
           <HomeScreen
             name={prefs.name}
             onName={(name) => setPrefs({ ...prefs, name })}
             onOpenToday={() => push({ kind: "today" })}
             onAddHabit={() => push({ kind: "today", openAdd: true })}
-            onOpenProfile={() => push({ kind: "profile" })}
             onGesture={onGesture}
           />
         ) : null}
