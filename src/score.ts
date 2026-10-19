@@ -2,6 +2,13 @@ import { dateFor, daysInMonth } from "./month";
 import { shownMark } from "./tally";
 import type { CheckItem, Entry, MonthState } from "./types";
 
+export type OpenHabit = {
+  id: string;
+  name: string;
+  entry: Entry;
+  followUpHours: number | null;
+};
+
 export type ScoreFocus = {
   label: string;
   misses: number;
@@ -53,7 +60,9 @@ function isDone(entry: Entry, cell: ScoreRecord | undefined): boolean {
   const shown = shownMark(entry, cell);
   if (entry === "tick") return shown === "tick";
   if (entry === "timer") return shown === "time";
-  if (entry === "journal") return shown === "note" || shown === "photo" || shown === "diary";
+  if (entry === "journal") {
+    return shown === "note" || shown === "photo" || shown === "diary" || shown === "voice";
+  }
   if (entry === "checklist") return checklistComplete(cell?.checklist);
   return false;
 }
@@ -138,4 +147,65 @@ export function scoreMonth(input: ScoreInput): MonthScore {
       .slice(0, 3)
       .map(([label, misses]) => ({ label, misses })),
   };
+}
+
+export function openTodayHabits(month: MonthState, now = new Date()): OpenHabit[] {
+  if (month.year !== now.getFullYear() || month.month !== now.getMonth() + 1) return [];
+  const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const byCell = new Map<string, ScoreRecord>();
+  for (const record of month.records) byCell.set(`${record.habitId}|${record.date}`, record);
+  return month.habits.flatMap((habit) => {
+    const cell = byCell.get(`${habit.id}|${today}`);
+    const shown = shownMark(habit.entry, cell);
+    if (shown === "cross" || isDone(habit.entry, cell)) return [];
+    return [
+      {
+        id: habit.id,
+        name: habit.name,
+        entry: habit.entry,
+        followUpHours: habit.followUpHours,
+      },
+    ];
+  });
+}
+
+function weekStart(today: string): string {
+  const parts = today.split("-").map(Number);
+  const year = parts[0] ?? 2000;
+  const month = parts[1] ?? 1;
+  const day = parts[2] ?? 1;
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() - date.getDay());
+  return dateFor(date.getFullYear(), date.getMonth() + 1, date.getDate());
+}
+
+/** The one tag with the most misses in the current calendar week. */
+export function weeklyFocusTag(
+  month: MonthState,
+  now = new Date(),
+): { label: string; misses: number } | null {
+  const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const start = weekStart(today);
+  const wrapped = new Set(month.wrappedDates);
+  const byCell = new Map<string, ScoreRecord>();
+  for (const record of month.records) byCell.set(`${record.habitId}|${record.date}`, record);
+  const counts = new Map<string, number>();
+  for (const habit of month.habits) {
+    if (!habit.tags.length) continue;
+    for (let day = 1; day <= daysInMonth(month.year, month.month); day += 1) {
+      const date = dateFor(month.year, month.month, day);
+      if (date < start || date > today) continue;
+      if (!inScoreRange(date, month.startedOn, today)) continue;
+      const cell = byCell.get(`${habit.id}|${date}`);
+      if (!isMiss(habit.entry, habit.blankCountsAsMiss, cell, date, today, wrapped.has(date))) continue;
+      for (const tag of habit.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  let best: { label: string; misses: number } | null = null;
+  for (const [label, misses] of counts) {
+    if (!best || misses > best.misses || (misses === best.misses && label.localeCompare(best.label) < 0)) {
+      best = { label, misses };
+    }
+  }
+  return best;
 }

@@ -1,6 +1,15 @@
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+} from "expo-audio";
+import * as Haptics from "expo-haptics";
 import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import {
+  Animated,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -24,9 +33,19 @@ import {
 import {
   addHabit,
   clearCell,
+  canUndoMark,
+  clearSetting,
   cycleTick,
+  EVENING_HOUR_KEY,
+  EVENING_MINUTE_KEY,
   moveHabit,
   openMonth,
+  readSetting,
+  reorderHabits,
+  saveBackup,
+  setPinned,
+  undoLastMark,
+  writeSetting,
   openAppDatabase,
   removeHabit,
   renameHabit,
@@ -46,9 +65,10 @@ import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
 import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./month";
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
-import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./notify";
+import { cancelHabitNotifications, syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
+import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
@@ -84,10 +104,12 @@ function rowHeight(_entry: Entry): number {
 export function MonthScreen({
   monthId,
   openAdd = false,
+  review = false,
   bindBack,
 }: {
   monthId: string;
   openAdd?: boolean;
+  review?: boolean;
   bindBack?: (handler: (() => boolean) | null) => void;
 }) {
   const windowWidth = useWindowDimensions().width;
@@ -106,6 +128,12 @@ export function MonthScreen({
   const [checklistEdit, setChecklistEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [noteEdit, setNoteEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<Habit | null>(null);
+  const [query, setQuery] = useState("");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [editingPast, setEditingPast] = useState(false);
+  const [evening, setEvening] = useState<{ hour: number; minute: number } | null>(null);
+  const [eveningOpen, setEveningOpen] = useState(false);
+  const [undoReady, setUndoReady] = useState(false);
   const checklistRef = useRef(checklistEdit);
   checklistRef.current = checklistEdit;
 
@@ -116,6 +144,11 @@ export function MonthScreen({
         if (!live) return;
         dbRef.current = database;
         setMonth(await openMonth(database, monthId));
+        const hour = await readSetting(database, EVENING_HOUR_KEY);
+        const minute = await readSetting(database, EVENING_MINUTE_KEY);
+        if (hour != null && minute != null) {
+          setEvening({ hour: Number(hour), minute: Number(minute) });
+        }
       })
       .catch(() => {
         if (!live) return;
@@ -148,9 +181,10 @@ export function MonthScreen({
     const database = dbRef.current;
     if (!database || !month) return Promise.reject(new Error("The month is not open."));
     const run = queue.current.then(async () => {
+      setBanner(null);
       const result = await task(database);
       setMonth(await openMonth(database, month.id));
-      setBanner(null);
+      setUndoReady(canUndoMark());
       return result;
     });
     queue.current = run.then(
@@ -188,8 +222,33 @@ export function MonthScreen({
     ? (month.habits.find((habit) => habit.id === renameTarget.id) ?? null)
     : null;
   const gridMonth = month;
+  const readOnly = review && !editingPast;
+  const frozen = readOnly || month.locked;
+  const needle = query.trim().toLowerCase();
+  const visibleHabits = month.habits.filter((habit) => {
+    if (needle && !habit.name.toLowerCase().includes(needle)) return false;
+    if (tagFilter && !habit.tags.some((tag) => tag.toLowerCase() === tagFilter.toLowerCase())) return false;
+    return true;
+  });
+  const tagChoices = [...new Set(month.habits.flatMap((habit) => habit.tags))];
   const { labelWidth, track, dayWidth } = gridMetrics(windowWidth);
-  const bodyHeight = HEADER_H + gridMonth.habits.reduce((sum, habit) => sum + rowHeight(habit.entry), 0);
+  const bodyHeight = HEADER_H + visibleHabits.reduce((sum, habit) => sum + rowHeight(habit.entry), 0);
+
+  function dropHabit(habit: Habit, slots: number) {
+    if (!slots || needle || tagFilter || frozen) return;
+    const pinned = gridMonth.habits.filter((item) => item.pinned).map((item) => item.id);
+    const rest = gridMonth.habits.filter((item) => !item.pinned).map((item) => item.id);
+    const group = habit.pinned ? pinned : rest;
+    const index = group.indexOf(habit.id);
+    const next = index + slots;
+    if (index < 0 || next < 0 || next >= group.length) return;
+    const moved = [...group];
+    const [id] = moved.splice(index, 1);
+    if (!id) return;
+    moved.splice(next, 0, id);
+    const ordered = habit.pinned ? [...moved, ...rest] : [...pinned, ...moved];
+    void enqueue((database) => reorderHabits(database, gridMonth.id, ordered)).catch(() => undefined);
+  }
 
   function revealToday() {
     if (todayDay == null) return;
@@ -244,36 +303,153 @@ export function MonthScreen({
   return (
     <View style={styles.screen} testID="month-grid">
       <View style={styles.controls}>
+        <TextInput
+          testID="habit-search"
+          accessibilityLabel="Search habits"
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search habits"
+          placeholderTextColor="#8A7A9E"
+          autoCorrect={false}
+          style={styles.search}
+        />
         <View style={styles.actions}>
-          {month.locked ? null : (
-            <Pressable style={styles.button} onPress={() => setAddOpen(true)} testID="add-row">
-              <Text style={styles.buttonText}>Add habit</Text>
+          {review && readOnly ? (
+            <Pressable
+              style={styles.button}
+              accessibilityLabel="Edit"
+              testID="edit-month"
+              onPress={() => {
+                setEditingPast(true);
+                if (month.locked) {
+                  void enqueue((database) => setLocked(database, month.id, false)).catch(() => undefined);
+                }
+              }}
+            >
+              <Text style={styles.buttonText}>Edit</Text>
+            </Pressable>
+          ) : (
+            <>
+              {frozen ? null : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Add habit"
+                  onPress={() => setAddOpen(true)}
+                  testID="add-row"
+                >
+                  <Text style={styles.buttonText}>Add habit</Text>
+                </Pressable>
+              )}
+              {review ? (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Done"
+                  testID="done-edit"
+                  onPress={() => {
+                    setEditingPast(false);
+                    void enqueue((database) => setLocked(database, month.id, true)).catch(() => undefined);
+                  }}
+                >
+                  <Text style={styles.buttonText}>Done</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel={month.locked ? "Unlock habits" : "Lock habits"}
+                  testID="lock-rows"
+                  onPress={() => {
+                    void enqueue((database) => setLocked(database, month.id, !month.locked)).catch(
+                      () => undefined,
+                    );
+                  }}
+                >
+                  <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
+                </Pressable>
+              )}
+              {review ? null : (
+                <Pressable
+                  style={[styles.button, styles.buttonOn]}
+                  accessibilityLabel="Wrap up day"
+                  testID="wrap-today"
+                  onPress={() => {
+                    void enqueue(async (database) => {
+                      await wrapToday(database, month.id, month.year, month.month);
+                      await setLocked(database, month.id, true);
+                    })
+                      .then(() => {
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+                      })
+                      .catch(() => undefined);
+                  }}
+                >
+                  <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
+                </Pressable>
+              )}
+            </>
+          )}
+          {undoReady ? (
+            <Pressable
+              style={styles.button}
+              accessibilityLabel="Undo"
+              testID="undo-mark"
+              onPress={() => {
+                void enqueue((database) => undoLastMark(database))
+                  .then(() => setUndoReady(canUndoMark()))
+                  .catch(() => undefined);
+              }}
+            >
+              <Text style={styles.buttonText}>Undo</Text>
+            </Pressable>
+          ) : null}
+          {review ? null : (
+            <Pressable
+              style={styles.button}
+              accessibilityLabel="Evening reminder"
+              testID="evening-reminder"
+              onPress={() => setEveningOpen(true)}
+            >
+              <Text style={styles.buttonText}>
+                {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
+              </Text>
             </Pressable>
           )}
           <Pressable
             style={styles.button}
-            testID="lock-rows"
-            onPress={() => {
-              void enqueue((database) => setLocked(database, month.id, !month.locked)).catch(
-                () => undefined,
-              );
-            }}
-          >
-            <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.button, styles.buttonOn]}
-            testID="wrap-today"
+            accessibilityLabel="Save backup"
+            testID="save-backup"
             onPress={() => {
               void enqueue(async (database) => {
-                await wrapToday(database, month.id, month.year, month.month);
-                await setLocked(database, month.id, true);
+                await saveBackup(database);
+                setBanner("Saved on this phone.");
               }).catch(() => undefined);
             }}
           >
-            <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
+            <Text style={styles.buttonText}>Save backup</Text>
           </Pressable>
         </View>
+        {tagChoices.length ? (
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityLabel="All habits"
+              testID="tag-filter-all"
+              style={[styles.button, tagFilter == null && styles.buttonOn]}
+              onPress={() => setTagFilter(null)}
+            >
+              <Text style={styles.buttonText}>All</Text>
+            </Pressable>
+            {tagChoices.map((tag) => (
+              <Pressable
+                key={tag}
+                accessibilityLabel={`Filter ${tag}`}
+                testID={`tag-filter-${testSlug(tag)}`}
+                style={[styles.button, tagFilter === tag && styles.buttonOn]}
+                onPress={() => setTagFilter(tag)}
+              >
+                <Text style={styles.buttonText}>{tag}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
       </View>
       <View style={styles.monthBar}>
@@ -288,14 +464,17 @@ export function MonthScreen({
             <View style={[styles.corner, styles.line, { width: labelWidth }]}>
               <Text style={styles.cornerText}>Task</Text>
             </View>
-            {month.habits.map((habit) => (
+            {visibleHabits.map((habit) => (
               <NameCell
                 key={habit.id}
                 habit={habit}
-                locked={month.locked}
+                locked={frozen}
                 labelWidth={labelWidth}
+                onDrop={
+                  !needle && !tagFilter && !frozen ? (slots) => dropHabit(habit, slots) : undefined
+                }
                 onPress={() => {
-                  if (month.locked) return;
+                  if (frozen) return;
                   setTimeEdit(null);
                   setRenameTarget(habit);
                 }}
@@ -349,7 +528,7 @@ export function MonthScreen({
                   );
                 })}
               </View>
-              {month.habits.map((habit) => (
+              {visibleHabits.map((habit) => (
                 <View key={habit.id} style={styles.dayHeaderRow}>
                   {days.map((day) => {
                     const record = records.get(
@@ -366,7 +545,7 @@ export function MonthScreen({
                         isWeekend={isWeekend(month.year, month.month, day)}
                         isToday={todayDay === day}
                         onPress={() => {
-                          if (month.locked) return;
+                          if (frozen) return;
                           if (habit.entry === "timer") {
                             setTimeEdit({ mode: "cell", habit, day });
                             return;
@@ -388,6 +567,11 @@ export function MonthScreen({
                               month.month,
                               day,
                             );
+                            if (outcome === "tick" || outcome === "cross") {
+                              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                                () => undefined,
+                              );
+                            }
                             const result = await syncFollowUp({
                               habitId: habit.id,
                               habitName: habit.name,
@@ -401,7 +585,7 @@ export function MonthScreen({
                           }).catch(() => undefined);
                         }}
                         onLongPress={() => {
-                          if (month.locked) return;
+                          if (frozen) return;
                           if (habit.entry === "tick") setNoteEdit({ habit, day });
                         }}
                       />
@@ -426,8 +610,14 @@ export function MonthScreen({
       {editingHabit ? (
         <RenameDialog
           habit={editingHabit}
-          isFirst={month.habits[0]?.id === editingHabit.id}
-          isLast={month.habits[month.habits.length - 1]?.id === editingHabit.id}
+          isFirst={
+            month.habits.filter((habit) => habit.pinned === editingHabit.pinned)[0]?.id ===
+            editingHabit.id
+          }
+          isLast={
+            month.habits.filter((habit) => habit.pinned === editingHabit.pinned).at(-1)?.id ===
+            editingHabit.id
+          }
           onClose={() => setRenameTarget(null)}
           subtasks={
             editingHabit.entry === "checklist" && todayDay != null
@@ -494,6 +684,11 @@ export function MonthScreen({
             const habit = editingHabit;
             setRenameTarget(null);
             setTimeEdit({ mode: "reminder", habit });
+          }}
+          onPin={() => {
+            void enqueue((database) =>
+              setPinned(database, month.id, editingHabit.id, !editingHabit.pinned),
+            ).catch(() => undefined);
           }}
           onMove={(direction) => {
             void enqueue((database) => moveHabit(database, month.id, editingHabit.id, direction)).catch(
@@ -609,8 +804,9 @@ export function MonthScreen({
           record={records.get(
             `${journalEdit.habit.id}|${dateFor(month.year, month.month, journalEdit.day)}`,
           )}
+          date={dateFor(month.year, month.month, journalEdit.day)}
           onClose={() => setJournalEdit(null)}
-          onSave={async (note, photoPath, diary) => {
+          onSave={async (note, photoPath, diary, voicePath) => {
             await enqueue((database) =>
               saveJournal(
                 database,
@@ -622,6 +818,7 @@ export function MonthScreen({
                 note,
                 photoPath,
                 diary,
+                voicePath,
               ),
             );
             setJournalEdit(null);
@@ -653,6 +850,34 @@ export function MonthScreen({
           }}
         />
       ) : null}
+      {eveningOpen ? (
+        <TimeDialog
+          title="Evening reminder"
+          hour={evening?.hour ?? null}
+          minute={evening?.minute ?? null}
+          onClose={() => setEveningOpen(false)}
+          onSave={async (hour, minute) => {
+            await enqueue(async (database) => {
+              await writeSetting(database, EVENING_HOUR_KEY, String(hour));
+              await writeSetting(database, EVENING_MINUTE_KEY, String(minute));
+            });
+            const result = await syncEveningWrap(hour, minute);
+            setEvening({ hour, minute });
+            setEveningOpen(false);
+            if (result === "unavailable") setBanner("Saved. The notification was not scheduled.");
+            if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
+          }}
+          onClear={async () => {
+            await enqueue(async (database) => {
+              await clearSetting(database, EVENING_HOUR_KEY);
+              await clearSetting(database, EVENING_MINUTE_KEY);
+            });
+            await syncEveningWrap(null, null);
+            setEvening(null);
+            setEveningOpen(false);
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -666,35 +891,71 @@ function kindLabel(entry: Entry): string {
 
 function rowSubtitle(habit: Habit): string {
   const kind = kindLabel(habit.entry);
-  if (!habit.tags.length) return kind;
-  return `${kind} · ${habit.tags.join(" · ")}`;
+  const pin = habit.pinned ? "Pinned" : "";
+  const tags = habit.tags.join(" · ");
+  return [pin, kind, tags].filter(Boolean).join(" · ");
 }
 
 function NameCell({
   habit,
   locked,
   labelWidth,
+  onDrop,
   onPress,
 }: {
   habit: Habit;
   locked: boolean;
   labelWidth: number;
+  onDrop?: (slots: number) => void;
   onPress: () => void;
 }) {
+  const moved = useRef(0);
+  const dropRef = useRef(onDrop);
+  const lockedRef = useRef(locked);
+  dropRef.current = onDrop;
+  lockedRef.current = locked;
+  const pan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: () => !lockedRef.current && dropRef.current != null,
+      onPanResponderGrant: () => {
+        moved.current = 0;
+      },
+      onPanResponderMove: (_event, gesture) => {
+        moved.current = Math.round(gesture.dy / ROW_H);
+      },
+      onPanResponderRelease: () => {
+        const slots = moved.current;
+        moved.current = 0;
+        dropRef.current?.(slots);
+      },
+    }),
+  ).current;
   return (
-    <Pressable
-      disabled={locked}
-      onPress={onPress}
-      testID={`habit-${testSlug(habit.name)}`}
-      style={[styles.nameCell, styles.line, { height: ROW_H, width: labelWidth }]}
-    >
-      <Text style={styles.habitName} numberOfLines={1}>
-        {habit.name}
-      </Text>
-      <Text style={styles.kind} numberOfLines={1}>
-        {rowSubtitle(habit)}
-      </Text>
-    </Pressable>
+    <View style={[styles.nameCell, styles.line, styles.nameRow, { height: ROW_H, width: labelWidth }]}>
+      <Pressable
+        disabled={locked}
+        onPress={onPress}
+        accessibilityLabel={habit.name}
+        testID={`habit-${testSlug(habit.name)}`}
+        style={styles.namePress}
+      >
+        <Text style={styles.habitName} numberOfLines={1}>
+          {habit.name}
+        </Text>
+        <Text style={styles.kind} numberOfLines={1}>
+          {rowSubtitle(habit)}
+        </Text>
+      </Pressable>
+      {onDrop ? (
+        <View
+          {...pan.panHandlers}
+          accessibilityLabel={`Drag ${habit.name}`}
+          style={styles.grip}
+        >
+          <Text style={styles.kind}>Drag</Text>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -721,6 +982,16 @@ function DayCell({
 }) {
   const slug = testSlug(habit.name);
   const shown = shownMark(habit.entry, record);
+  const scale = useRef(new Animated.Value(1)).current;
+  const seen = useRef(false);
+  useEffect(() => {
+    if (!seen.current) {
+      seen.current = true;
+      return;
+    }
+    scale.setValue(0.82);
+    Animated.timing(scale, { toValue: 1, duration: 180, useNativeDriver: true }).start();
+  }, [shown, scale]);
   const glyph =
     shown === "tick"
       ? "✓"
@@ -732,11 +1003,13 @@ function DayCell({
             ? "note"
             : shown === "photo"
               ? "photo"
-          : shown === "diary"
-            ? "diary"
-            : shown === "list"
-              ? checklistSummary(record?.checklist ?? [])
-              : "";
+              : shown === "diary"
+                ? "diary"
+                : shown === "voice"
+                  ? "voice"
+                  : shown === "list"
+                    ? checklistSummary(record?.checklist ?? [])
+                    : "";
   return (
     <Pressable
       testID={`cell-${slug}-${day}`}
@@ -745,18 +1018,20 @@ function DayCell({
       onLongPress={onLongPress}
       style={[styles.cell, styles.line, { height, width: dayWidth }, isWeekend && styles.weekend, isToday && styles.today]}
     >
-      <Text
-        testID={`mark-${slug}-${day}`}
-        style={[
-          styles.mark,
-          shown === "tick" && styles.tick,
-          shown === "cross" && styles.cross,
-          shown === "time" && styles.timeMark,
-          shown === "list" && styles.listMark,
-        ]}
-      >
-        {glyph}
-      </Text>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Text
+          testID={`mark-${slug}-${day}`}
+          style={[
+            styles.mark,
+            shown === "tick" && styles.tick,
+            shown === "cross" && styles.cross,
+            shown === "time" && styles.timeMark,
+            shown === "list" && styles.listMark,
+          ]}
+        >
+          {glyph}
+        </Text>
+      </Animated.View>
       {habit.entry === "tick" && record?.note ? (
         <Text style={styles.note} numberOfLines={1}>
           {record.note}
@@ -913,6 +1188,7 @@ function RenameDialog({
   onTags,
   onFollowUp,
   onRemind,
+  onPin,
   onMove,
 }: {
   habit: Habit;
@@ -928,6 +1204,7 @@ function RenameDialog({
   onTags: (tags: string[]) => void;
   onFollowUp: (raw: string) => void;
   onRemind: () => void;
+  onPin: () => void;
   onMove: (direction: "up" | "down") => void;
 }) {
   const [name, setName] = useState(habit.name);
@@ -1204,10 +1481,18 @@ function RenameDialog({
         </Pressable>
       ) : null}
       <View style={styles.actions}>
-        <Pressable style={styles.button} disabled={isFirst} onPress={() => onMove("up")}>
+        <Pressable
+          style={styles.button}
+          accessibilityLabel={habit.pinned ? "Unpin" : "Pin"}
+          testID={`pin-${slug}`}
+          onPress={onPin}
+        >
+          <Text style={styles.buttonText}>{habit.pinned ? "Unpin" : "Pin"}</Text>
+        </Pressable>
+        <Pressable style={styles.button} accessibilityLabel="Move up" disabled={isFirst} onPress={() => onMove("up")}>
           <Text style={styles.buttonText}>Move up</Text>
         </Pressable>
-        <Pressable style={styles.button} disabled={isLast} onPress={() => onMove("down")}>
+        <Pressable style={styles.button} accessibilityLabel="Move down" disabled={isLast} onPress={() => onMove("down")}>
           <Text style={styles.buttonText}>Move down</Text>
         </Pressable>
       </View>
@@ -1330,21 +1615,58 @@ function TimeDialog({
 function JournalDialog({
   habit,
   day,
+  date,
   record,
   onClose,
   onSave,
 }: {
   habit: Habit;
   day: number;
+  date: string;
   record: DayRecord | undefined;
   onClose: () => void;
-  onSave: (note: string, photoPath: string | null, diary: boolean) => Promise<void>;
+  onSave: (note: string, photoPath: string | null, diary: boolean, voicePath: string | null) => Promise<void>;
 }) {
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [note, setNote] = useState(record?.note ?? "");
   const keptPhoto = keepPhotoFile(record?.photoPath);
+  const keptVoice = keepVoiceFile(record?.voicePath);
   const [photoPath, setPhotoPath] = useState<string | null>(keptPhoto);
+  const [voicePath, setVoicePath] = useState<string | null>(keptVoice);
+  const [recording, setRecording] = useState(false);
   const [diary, setDiary] = useState(record?.diaryMark ?? false);
   const [message, setMessage] = useState<string | null>(record?.photoPath && !keptPhoto ? PHOTO_REFUSED : null);
+
+  async function toggleVoice() {
+    try {
+      if (recording) {
+        await recorder.stop();
+        setRecording(false);
+        const uri = recorder.uri;
+        if (!uri) {
+          setMessage(VOICE_REFUSED);
+          return;
+        }
+        setVoicePath(await storeVoiceNote(habit.id, date, uri));
+        setMessage(null);
+        return;
+      }
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        setMessage("The microphone is off. The note can still be saved.");
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecording(true);
+      setMessage(null);
+    } catch {
+      setRecording(false);
+      setMessage(VOICE_REFUSED);
+    }
+  }
+
   return (
     <Dialog title={`${habit.name} · day ${day}`} onClose={onClose}>
       <TextInput
@@ -1357,6 +1679,7 @@ function JournalDialog({
       <View style={styles.actions}>
         <Pressable
           style={styles.button}
+          accessibilityLabel={photoPath ? "Replace photo" : "Attach photo"}
           onPress={() => {
             void pickJournalPhoto(habit.id, `${day}`)
               .then((path) => {
@@ -1370,12 +1693,32 @@ function JournalDialog({
         {photoPath ? (
           <Pressable
             style={styles.button}
+            accessibilityLabel="Remove photo"
             onPress={() => {
               forgetJournalPhoto(photoPath);
               setPhotoPath(null);
             }}
           >
             <Text style={styles.buttonText}>Remove photo</Text>
+          </Pressable>
+        ) : null}
+        <Pressable
+          style={styles.button}
+          accessibilityLabel={recording ? "Stop voice note" : "Record voice note"}
+          testID="journal-voice"
+          onPress={() => {
+            void toggleVoice();
+          }}
+        >
+          <Text style={styles.buttonText}>{recording ? "Stop voice note" : voicePath ? "Replace voice note" : "Record voice note"}</Text>
+        </Pressable>
+        {voicePath && !recording ? (
+          <Pressable
+            style={styles.button}
+            accessibilityLabel="Remove voice note"
+            onPress={() => setVoicePath(null)}
+          >
+            <Text style={styles.buttonText}>Remove voice note</Text>
           </Pressable>
         ) : null}
         <Pressable style={[styles.button, diary && styles.buttonOn]} onPress={() => setDiary((value) => !value)}>
@@ -1391,7 +1734,7 @@ function JournalDialog({
         <Pressable
           style={styles.button}
           onPress={() => {
-            void onSave(note, photoPath, diary).catch((error: unknown) => setMessage(errorText(error)));
+            void onSave(note, photoPath, diary, voicePath).catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
           <Text style={styles.buttonText}>Save</Text>
@@ -1662,8 +2005,18 @@ const styles = StyleSheet.create({
   ask: { marginTop: 12, color: "#F6F1FF", fontSize: 16, lineHeight: 22, fontWeight: "700" },
   banner: { marginTop: 8, color: "#FF8AA0", fontSize: 14 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 0 },
+  search: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: "#3A3348",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    color: "#F6F1FF",
+    backgroundColor: "#16121C",
+    fontSize: 16,
+  },
   button: {
-    height: 36,
+    minHeight: 44,
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "#3A3348",
@@ -1690,10 +2043,13 @@ const styles = StyleSheet.create({
   nameCell: {
     width: LABEL_W,
     justifyContent: "center",
-    paddingHorizontal: 16,
+    paddingLeft: 12,
     backgroundColor: "#1C1726",
     borderLeftWidth: 1,
   },
+  nameRow: { flexDirection: "row", alignItems: "center" },
+  namePress: { flex: 1, justifyContent: "center", minHeight: 44 },
+  grip: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   habitName: { color: "#FFFFFF", fontSize: 17, fontWeight: "700" },
   kind: { color: "#8E819C", fontSize: 11, marginTop: 2 },
   fieldLabel: {

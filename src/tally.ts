@@ -1,12 +1,13 @@
 import type { CheckItem, Entry } from "./types";
 
-export type ShownMark = "tick" | "cross" | "time" | "note" | "photo" | "diary" | "list" | "blank";
+export type ShownMark = "tick" | "cross" | "time" | "note" | "photo" | "diary" | "voice" | "list" | "blank";
 
 export type CellView = {
   display?: string;
   note?: string | null;
   photoPath?: string | null;
   diaryMark?: boolean;
+  voicePath?: string | null;
   clockHour?: number | null;
   clockMinute?: number | null;
   checklist?: CheckItem[];
@@ -26,6 +27,7 @@ export function shownMark(entry: Entry, cell: CellView | undefined): ShownMark {
     if (cell.display === "cross") return "cross";
     if (cell.note) return "note";
     if (cell.photoPath) return "photo";
+    if (cell.voicePath) return "voice";
     if (cell.diaryMark) return "diary";
     return "blank";
   }

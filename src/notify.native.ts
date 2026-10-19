@@ -3,6 +3,15 @@ import { Platform } from "react-native";
 
 import type { FollowUpRequest, NotifyResult, ReminderRequest } from "./notify";
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 export type { FollowUpRequest, NotifyResult, ReminderRequest };
 
 const CHANNEL = "pencheck";
@@ -79,6 +88,34 @@ export async function syncDailyReminder(request: ReminderRequest): Promise<Notif
         type: Notifications.SchedulableTriggerInputTypes.DAILY,
         hour: request.hour,
         minute: request.minute,
+        channelId: CHANNEL,
+      },
+    });
+    return "scheduled";
+  } catch {
+    return "unavailable";
+  }
+}
+
+const EVENING_ID = "pencheck-evening-wrap";
+
+/** One local daily notification. The same id is replaced, so they do not stack. */
+export async function syncEveningWrap(hour: number | null, minute: number | null): Promise<NotifyResult> {
+  await cancelId(EVENING_ID);
+  if (hour == null || minute == null) return "cancelled";
+  try {
+    if (!(await allowed())) return "unavailable";
+    await ensureChannel();
+    await Notifications.scheduleNotificationAsync({
+      identifier: EVENING_ID,
+      content: {
+        title: "MyDTC",
+        body: "Wrap up today",
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        hour,
+        minute,
         channelId: CHANNEL,
       },
     });

@@ -29,6 +29,7 @@ export function TabBar({
           <Pressable
             key={item.id}
             accessibilityRole="tab"
+            accessibilityLabel={item.label}
             accessibilityState={{ selected }}
             testID={`tab-${item.id}`}
             style={styles.tab}
@@ -56,7 +57,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 8,
   },
-  tab: { flex: 1, alignItems: "center", justifyContent: "center", height: 36 },
+  tab: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 44 },
   label: { color: ink.quiet, fontSize: 12, fontWeight: "600" },
   labelOn: { color: ink.green },
 });

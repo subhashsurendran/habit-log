@@ -1,4 +1,12 @@
-import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
+import { Directory, File, Paths } from "expo-file-system";
+import {
+  deleteDatabaseAsync,
+  deserializeDatabaseAsync,
+  openDatabaseAsync,
+  type SQLiteDatabase,
+} from "expo-sqlite";
+
+import { equalBytes } from "./aesGcm";
 
 import { checklistSummary, mergeCarriedItems, normalizeChecklist, parseStoredChecklist, sameChecklist } from "./checklist";
 import { OPEN_FAILED } from "./errors";
@@ -6,6 +14,8 @@ import { parseFollowUpHours } from "./followUp";
 import { currentMonth, dateFor, daysInMonth, monthId, nextDateInSameMonth, shouldWrapDate } from "./month";
 import { cleanName, entryForName, NAME_MAX, validateName } from "./names";
 import { keepPhotoFile } from "./photoFile";
+import { keepVoiceFile } from "./voiceFile";
+import { databaseKey, openDatabaseSeal, readSealed, sealDatabase, writeSealed } from "./vault";
 import { parseStoredTags, normalizeTags } from "./tags";
 import { formatClock12, parseTimeInput } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MarkSource, MonthState, TickOutcome } from "./types";
@@ -29,6 +39,8 @@ let generation = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryWake: (() => void) | null = null;
 let pageCloseBound = false;
+let sealedKey: Uint8Array | null = null;
+let persistReady = false;
 
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
   const run = chain.then(task, task);
@@ -40,7 +52,18 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 }
 
 function withDbLock<T>(task: () => Promise<T>): Promise<T> {
-  const run = dbChain.then(task, task);
+  const run = dbChain.then(
+    async () => {
+      const result = await task();
+      await persistSealedCopy(handle).catch(() => undefined);
+      return result;
+    },
+    async () => {
+      const result = await task();
+      await persistSealedCopy(handle).catch(() => undefined);
+      return result;
+    },
+  );
   dbChain = run.then(
     () => undefined,
     () => undefined,
@@ -115,17 +138,54 @@ function releaseOpenNow(): void {
   );
 }
 
+async function persistSealedCopy(db: SQLiteDatabase | null): Promise<void> {
+  if (!persistReady || !sealedKey || !db) return;
+  const plain = new Uint8Array(await db.serializeAsync());
+  await writeSealed(sealDatabase(plain, sealedKey));
+}
+
+async function openVaultDatabase(): Promise<SQLiteDatabase> {
+  sealedKey = await databaseKey();
+  const existing = await readSealed();
+  if (existing) {
+    const plain = openDatabaseSeal(existing, sealedKey);
+    try {
+      await deleteDatabaseAsync("habit-log.db");
+    } catch {
+      // The sealed file is the one that opens.
+    }
+    return deserializeDatabaseAsync(plain);
+  }
+  const plainDb = await openDatabaseAsync("habit-log.db");
+  await prepareDatabase(plainDb);
+  const plain = new Uint8Array(await plainDb.serializeAsync());
+  await writeSealed(sealDatabase(plain, sealedKey));
+  const stored = await readSealed();
+  if (!stored || !equalBytes(openDatabaseSeal(stored, sealedKey), plain)) {
+    throw new Error(OPEN_FAILED);
+  }
+  await plainDb.closeAsync();
+  try {
+    await deleteDatabaseAsync("habit-log.db");
+  } catch {
+    // Verified sealed copy remains.
+  }
+  return deserializeDatabaseAsync(plain);
+}
+
 async function openPrepared(ticket: number): Promise<SQLiteDatabase> {
   for (let attempt = 0; attempt < OPEN_ATTEMPTS; attempt += 1) {
     if (ticket !== generation) break;
     let db: SQLiteDatabase | null = null;
     try {
-      db = await openDatabaseAsync("habit-log.db");
+      db = await openVaultDatabase();
       if (ticket !== generation) {
         await releaseHandle(db);
         break;
       }
       await prepareDatabase(db);
+      persistReady = true;
+      await persistSealedCopy(db);
       if (ticket !== generation) {
         await releaseHandle(db);
         break;
@@ -358,6 +418,8 @@ export type TemplateDraft = {
 };
 export const DISPLAY_NAME_KEY = "display_name";
 export const SOUND_MUTED_KEY = "sound_muted";
+export const EVENING_HOUR_KEY = "evening_hour";
+export const EVENING_MINUTE_KEY = "evening_minute";
 const SETTING_KEY = /^[a-z0-9_]{1,32}$/;
 const TEMPLATE_ROW_MAX = 40;
 export type DashboardState = {
@@ -422,6 +484,11 @@ export function writeSetting(db: SQLiteDatabase, key: string, value: string): Pr
       value,
     ),
   ).then(() => undefined);
+}
+
+export function clearSetting(db: SQLiteDatabase, key: string): Promise<void> {
+  if (!SETTING_KEY.test(key)) return Promise.resolve();
+  return withDbLock(() => db.runAsync("DELETE FROM settings WHERE key = ?", key)).then(() => undefined);
 }
 
 export function createHabitTemplate(
@@ -592,28 +659,34 @@ export async function cycleTick(
   const habit = await requireHabit(db, monthId, habitId);
   if (habit.entry !== "tick") throw new Error("This row is not a tick.");
 
-  const existing = await db.getFirstAsync<{ display: string }>(
-    "SELECT display FROM day_records WHERE habit_id = ? AND date = ?",
-    habitId,
-    date,
-  );
-  if (!existing) {
-    await insertMark(db, habitId, date, "tick", null, null);
-    return "tick";
-  }
-  if (existing.display === "tick") {
-    await db.runAsync(
-      `UPDATE day_records
-       SET display = 'cross', source = 'manual', clock_hour = NULL, clock_minute = NULL,
-           span_start = NULL, span_end = NULL
-       WHERE habit_id = ? AND date = ?`,
+  let outcome: TickOutcome = "empty";
+  await withCellUndo(db, habitId, date, async () => {
+    const existing = await db.getFirstAsync<{ display: string }>(
+      "SELECT display FROM day_records WHERE habit_id = ? AND date = ?",
       habitId,
       date,
     );
-    return "cross";
-  }
-  await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
-  return "empty";
+    if (!existing) {
+      await insertMark(db, habitId, date, "tick", null, null);
+      outcome = "tick";
+      return;
+    }
+    if (existing.display === "tick") {
+      await db.runAsync(
+        `UPDATE day_records
+         SET display = 'cross', source = 'manual', clock_hour = NULL, clock_minute = NULL,
+             span_start = NULL, span_end = NULL
+         WHERE habit_id = ? AND date = ?`,
+        habitId,
+        date,
+      );
+      outcome = "cross";
+      return;
+    }
+    await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
+    outcome = "empty";
+  });
+  return outcome;
 }
 
 export async function setTickNote(
@@ -637,7 +710,9 @@ export async function setTickNote(
   if (!existing || (existing.display !== "tick" && existing.display !== "cross")) {
     throw new Error("Mark the day before adding a note.");
   }
-  await db.runAsync("UPDATE day_records SET note = ? WHERE habit_id = ? AND date = ?", note, habitId, date);
+  await withCellUndo(db, habitId, date, async () => {
+    await db.runAsync("UPDATE day_records SET note = ? WHERE habit_id = ? AND date = ?", note, habitId, date);
+  });
 }
 
 export async function setTime(
@@ -655,7 +730,9 @@ export async function setTime(
   const date = dateInMonth(year, month, day);
   const habit = await requireHabit(db, monthId, habitId);
   if (habit.entry !== "timer") throw new Error("This row is not a timer.");
-  await insertMark(db, habitId, date, formatClock12(hour, minute), hour, minute);
+  await withCellUndo(db, habitId, date, async () => {
+    await insertMark(db, habitId, date, formatClock12(hour, minute), hour, minute);
+  });
 }
 
 export async function clearCell(
@@ -668,7 +745,9 @@ export async function clearCell(
 ): Promise<void> {
   const date = dateInMonth(year, month, day);
   await requireHabit(db, monthId, habitId);
-  await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
+  await withCellUndo(db, habitId, date, async () => {
+    await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
+  });
 }
 
 export async function saveJournal(
@@ -681,22 +760,27 @@ export async function saveJournal(
   rawNote: string,
   photoPath: string | null,
   diaryMark: boolean,
+  voicePath: string | null = null,
 ): Promise<void> {
   const date = dateInMonth(year, month, day);
   const habit = await requireHabit(db, monthId, habitId);
   if (habit.entry !== "journal") throw new Error("This row is not a journal.");
   const note = cleanNote(rawNote, JOURNAL_NOTE_MAX);
   const photo = keepPhotoFile(photoPath);
-  if (!note && !photo && !diaryMark) {
-    await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
+  const voice = keepVoiceFile(voicePath);
+  if (!note && !photo && !diaryMark && !voice) {
+    await withCellUndo(db, habitId, date, async () => {
+      await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
+    });
     return;
   }
-  const display = note ? "note" : photo ? "photo" : "diary";
-  await db.runAsync(
+  const display = note ? "note" : photo ? "photo" : voice ? "voice" : "diary";
+  await withCellUndo(db, habitId, date, async () => {
+    await db.runAsync(
     `INSERT INTO day_records (
        habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end,
-       note, photo_path, diary_mark
-     ) VALUES (?, ?, ?, 'manual', NULL, NULL, NULL, NULL, ?, ?, ?)
+       note, photo_path, diary_mark, voice_path
+     ) VALUES (?, ?, ?, 'manual', NULL, NULL, NULL, NULL, ?, ?, ?, ?)
      ON CONFLICT(habit_id, date) DO UPDATE SET
        display = excluded.display,
        source = 'manual',
@@ -706,14 +790,17 @@ export async function saveJournal(
        span_end = NULL,
        note = excluded.note,
        photo_path = excluded.photo_path,
-       diary_mark = excluded.diary_mark`,
+       diary_mark = excluded.diary_mark,
+       voice_path = excluded.voice_path`,
     habitId,
     date,
     display,
     note,
     photo,
     diaryMark ? 1 : 0,
-  );
+    voice,
+    );
+  });
 }
 
 export async function saveChecklist(
@@ -729,6 +816,7 @@ export async function saveChecklist(
   const habit = await requireHabit(db, monthId, habitId);
   if (habit.entry !== "checklist") throw new Error("This row is not a checklist.");
   const items = normalizeChecklist(rawItems);
+  await withCellUndo(db, habitId, date, async () => {
   if (!items.length) {
     const existing = await db.getFirstAsync<{ display: string }>(
       "SELECT display FROM day_records WHERE habit_id = ? AND date = ?",
@@ -760,6 +848,7 @@ export async function saveChecklist(
     checklistSummary(items),
     JSON.stringify(items),
   );
+  });
 }
 
 export async function addHabit(
@@ -951,13 +1040,14 @@ export async function moveHabit(
   direction: "up" | "down",
 ): Promise<void> {
   await assertUnlocked(db, monthId);
-  const habits = await db.getAllAsync<{ id: string }>(
-    "SELECT id FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC",
+  const habits = await db.getAllAsync<{ id: string; pinned: number | null }>(
+    "SELECT id, pinned FROM habits WHERE month_id = ? ORDER BY pinned DESC, sort_order ASC, id ASC",
     monthId,
   );
   const index = habits.findIndex((habit) => habit.id === habitId);
   const swapIndex = direction === "up" ? index - 1 : index + 1;
   if (index < 0 || swapIndex < 0 || swapIndex >= habits.length) return;
+  if (Number(habits[index]?.pinned) !== Number(habits[swapIndex]?.pinned)) return;
   const next = habits.slice();
   const [moved] = next.splice(index, 1);
   if (!moved) return;
@@ -1016,6 +1106,11 @@ async function wrapPastDays(
 }
 
 async function wrapOneDay(db: SQLiteDatabase, monthId: string, date: string): Promise<boolean> {
+  const started = await db.getFirstAsync<{ started_on: string | null }>(
+    "SELECT started_on FROM months WHERE id = ?",
+    monthId,
+  );
+  if (started?.started_on && date < started.started_on) return false;
   const already = await db.getFirstAsync<{ date: string }>(
     "SELECT date FROM wrapped_days WHERE month_id = ? AND date = ?",
     monthId,
@@ -1111,10 +1206,11 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
     reminder_minute: number | null;
     tags: string | null;
     carry_forward: number | null;
+    pinned: number | null;
   }>(
     `SELECT id, name, sort_order, entry, blank_counts_as_miss, follow_up_hours,
-            reminder_hour, reminder_minute, tags, carry_forward
-     FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC`,
+            reminder_hour, reminder_minute, tags, carry_forward, pinned
+     FROM habits WHERE month_id = ? ORDER BY pinned DESC, sort_order ASC, id ASC`,
     id,
   );
   const recordRows = await db.getAllAsync<{
@@ -1128,9 +1224,10 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
     photo_path: string | null;
     diary_mark: number | null;
     checklist: string | null;
+    voice_path: string | null;
   }>(
     `SELECT r.habit_id, r.date, r.display, r.source, r.clock_hour, r.clock_minute,
-            r.note, r.photo_path, r.diary_mark, r.checklist
+            r.note, r.photo_path, r.diary_mark, r.checklist, r.voice_path
      FROM day_records r
      JOIN habits h ON h.id = r.habit_id
      WHERE h.month_id = ?`,
@@ -1160,6 +1257,7 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
       reminderMinute: row.reminder_minute == null ? null : Number(row.reminder_minute),
       tags: parseStoredTags(row.tags),
       carryForward: row.carry_forward == null || Number(row.carry_forward) !== 0,
+      pinned: Number(row.pinned) === 1,
     })),
     records: recordRows.flatMap((row) => {
       const source = asSource(row.source);
@@ -1175,6 +1273,7 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
         photoPath: keepPhotoFile(row.photo_path),
         diaryMark: Number(row.diary_mark) === 1,
         checklist: parseStoredChecklist(row.checklist),
+        voicePath: keepVoiceFile(row.voice_path),
       };
       return [record];
     }),
@@ -1266,6 +1365,11 @@ async function ensureHabitColumns(db: SQLiteDatabase): Promise<void> {
       "ALTER TABLE habits ADD COLUMN carry_forward INTEGER NOT NULL DEFAULT 1 CHECK (carry_forward IN (0, 1))",
     );
   }
+  if (!columns.has("pinned")) {
+    await db.execAsync(
+      "ALTER TABLE habits ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))",
+    );
+  }
 }
 
 async function ensureDayColumns(db: SQLiteDatabase): Promise<void> {
@@ -1281,6 +1385,9 @@ async function ensureDayColumns(db: SQLiteDatabase): Promise<void> {
   }
   if (!columns.has("checklist")) {
     await db.execAsync("ALTER TABLE day_records ADD COLUMN checklist TEXT");
+  }
+  if (!columns.has("voice_path")) {
+    await db.execAsync("ALTER TABLE day_records ADD COLUMN voice_path TEXT");
   }
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS wrapped_days (
@@ -1408,9 +1515,10 @@ async function requireHabit(db: SQLiteDatabase, monthId: string, habitId: string
     reminder_minute: number | null;
     tags: string | null;
     carry_forward: number | null;
+    pinned: number | null;
   }>(
     `SELECT id, name, sort_order, entry, blank_counts_as_miss, follow_up_hours,
-            reminder_hour, reminder_minute, tags, carry_forward
+            reminder_hour, reminder_minute, tags, carry_forward, pinned
      FROM habits WHERE id = ? AND month_id = ?`,
     habitId,
     monthId,
@@ -1427,7 +1535,222 @@ async function requireHabit(db: SQLiteDatabase, monthId: string, habitId: string
     reminderMinute: row.reminder_minute == null ? null : Number(row.reminder_minute),
     tags: parseStoredTags(row.tags),
     carryForward: row.carry_forward == null || Number(row.carry_forward) !== 0,
+    pinned: Number(row.pinned) === 1,
   };
+}
+
+type CellRow = {
+  display: string;
+  source: string;
+  clock_hour: number | null;
+  clock_minute: number | null;
+  note: string | null;
+  photo_path: string | null;
+  diary_mark: number | null;
+  checklist: string | null;
+  voice_path: string | null;
+};
+
+let lastUndo: { habitId: string; date: string; row: CellRow | null } | null = null;
+
+async function readCell(db: SQLiteDatabase, habitId: string, date: string): Promise<CellRow | null> {
+  return db.getFirstAsync<CellRow>(
+    `SELECT display, source, clock_hour, clock_minute, note, photo_path, diary_mark, checklist, voice_path
+     FROM day_records WHERE habit_id = ? AND date = ?`,
+    habitId,
+    date,
+  );
+}
+
+async function withCellUndo(
+  db: SQLiteDatabase,
+  habitId: string,
+  date: string,
+  task: () => Promise<void>,
+): Promise<void> {
+  const before = await readCell(db, habitId, date);
+  await task();
+  lastUndo = { habitId, date, row: before };
+}
+
+export function canUndoMark(): boolean {
+  return lastUndo != null;
+}
+
+export async function undoLastMark(db: SQLiteDatabase): Promise<boolean> {
+  const snap = lastUndo;
+  if (!snap) return false;
+  lastUndo = null;
+  if (!snap.row) {
+    await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", snap.habitId, snap.date);
+    return true;
+  }
+  const row = snap.row;
+  await db.runAsync(
+    `INSERT INTO day_records (
+       habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end,
+       note, photo_path, diary_mark, checklist, voice_path
+     ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)
+     ON CONFLICT(habit_id, date) DO UPDATE SET
+       display = excluded.display,
+       source = excluded.source,
+       clock_hour = excluded.clock_hour,
+       clock_minute = excluded.clock_minute,
+       note = excluded.note,
+       photo_path = excluded.photo_path,
+       diary_mark = excluded.diary_mark,
+       checklist = excluded.checklist,
+       voice_path = excluded.voice_path`,
+    snap.habitId,
+    snap.date,
+    row.display,
+    row.source === "alarm" ? "alarm" : "manual",
+    row.clock_hour,
+    row.clock_minute,
+    row.note,
+    row.photo_path,
+    Number(row.diary_mark) === 1 ? 1 : 0,
+    row.checklist,
+    row.voice_path,
+  );
+  return true;
+}
+
+export async function setPinned(
+  db: SQLiteDatabase,
+  monthId: string,
+  habitId: string,
+  pinned: boolean,
+): Promise<void> {
+  await requireHabit(db, monthId, habitId);
+  if (pinned) {
+    const count = await db.getFirstAsync<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM habits WHERE month_id = ? AND pinned != 0 AND id != ?",
+      monthId,
+      habitId,
+    );
+    if (Number(count?.n ?? 0) >= 3) throw new Error("Three habits can be pinned.");
+  }
+  await db.runAsync(
+    "UPDATE habits SET pinned = ? WHERE id = ? AND month_id = ?",
+    pinned ? 1 : 0,
+    habitId,
+    monthId,
+  );
+}
+
+export async function reorderHabits(
+  db: SQLiteDatabase,
+  monthId: string,
+  orderedIds: readonly string[],
+): Promise<void> {
+  await assertUnlocked(db, monthId);
+  await db.withTransactionAsync(async () => {
+    for (let order = 0; order < orderedIds.length; order += 1) {
+      const id = orderedIds[order];
+      if (!id) continue;
+      await db.runAsync(
+        "UPDATE habits SET sort_order = ? WHERE id = ? AND month_id = ?",
+        order,
+        id,
+        monthId,
+      );
+    }
+  });
+}
+
+export async function markDoneToday(
+  db: SQLiteDatabase,
+  monthId: string,
+  habitId: string,
+  now = new Date(),
+): Promise<Entry | null> {
+  const habit = await requireHabit(db, monthId, habitId);
+  if (now.getFullYear() !== Number(monthId.slice(0, 4)) || now.getMonth() + 1 !== Number(monthId.slice(5))) {
+    throw new Error("That day is not on this grid.");
+  }
+  await assertUnlocked(db, monthId);
+  const day = now.getDate();
+  if (habit.entry === "tick") {
+    const date = dateInMonth(habit ? Number(monthId.slice(0, 4)) : 0, Number(monthId.slice(5)), day);
+    const existing = await readCell(db, habitId, date);
+    if (existing?.display === "tick") return null;
+    await withCellUndo(db, habitId, date, async () => {
+      await insertMark(db, habitId, date, "tick", null, null);
+    });
+    return "tick";
+  }
+  if (habit.entry === "timer") {
+    await setTime(db, monthId, habitId, now.getFullYear(), now.getMonth() + 1, day, now.getHours(), now.getMinutes());
+    return "timer";
+  }
+  if (habit.entry === "journal") {
+    const date = dateFor(now.getFullYear(), now.getMonth() + 1, day);
+    const existing = await readCell(db, habitId, date);
+    await saveJournal(
+      db,
+      monthId,
+      habitId,
+      now.getFullYear(),
+      now.getMonth() + 1,
+      day,
+      existing?.note ?? "",
+      existing?.photo_path ?? null,
+      true,
+      existing?.voice_path ?? null,
+    );
+    return "journal";
+  }
+  const date = dateFor(now.getFullYear(), now.getMonth() + 1, day);
+  const existing = await readCell(db, habitId, date);
+  const items = parseStoredChecklist(existing?.checklist ?? null);
+  if (!items.length) return null;
+  await saveChecklist(
+    db,
+    monthId,
+    habitId,
+    now.getFullYear(),
+    now.getMonth() + 1,
+    day,
+    items.map((item) => ({ text: item.text, done: true })),
+  );
+  return "checklist";
+}
+
+export async function saveBackup(db: SQLiteDatabase): Promise<string> {
+  if (!Paths.document) throw new Error("Could not store that on this device.");
+  const months = await db.getAllAsync("SELECT id, year, month, locked, started_on FROM months ORDER BY id");
+  const habits = await db.getAllAsync(
+    "SELECT id, month_id, name, sort_order, entry, blank_counts_as_miss, follow_up_hours, reminder_hour, reminder_minute, tags, carry_forward, pinned FROM habits ORDER BY month_id, sort_order",
+  );
+  const records = await db.getAllAsync(
+    "SELECT habit_id, date, display, source, clock_hour, clock_minute, note, photo_path, diary_mark, checklist, voice_path FROM day_records ORDER BY date",
+  );
+  const templates = await db.getAllAsync("SELECT id, name FROM templates ORDER BY name");
+  const templateRows = await db.getAllAsync(
+    "SELECT template_id, name, sort_order, entry, blank_counts_as_miss, tags FROM template_rows ORDER BY template_id, sort_order",
+  );
+  const payload = JSON.stringify({
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    months,
+    habits,
+    records,
+    templates,
+    templateRows,
+  });
+  const folder = new Directory(Paths.document, "pencheck-backups") as Directory & {
+    create: (options?: { intermediates?: boolean; idempotent?: boolean }) => void;
+  };
+  if (!folder.exists) folder.create({ intermediates: true, idempotent: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = new File(folder, `mydtc-${stamp}.json`) as File & {
+    create: (options?: { overwrite?: boolean }) => void;
+    write: (content: string) => void;
+  };
+  file.create({ overwrite: true });
+  file.write(payload);
+  return file.uri;
 }
 
 async function assertUnlocked(db: SQLiteDatabase, monthId: string): Promise<void> {

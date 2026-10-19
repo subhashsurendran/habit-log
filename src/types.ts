@@ -21,6 +21,8 @@ export type Habit = {
   tags: string[];
   /** Checklist only. When on, unfinished lines are copied to the next day at wrap. */
   carryForward: boolean;
+  /** Pinned habits stay at the top. At most three. */
+  pinned: boolean;
 };
 
 export type DayRecord = {
@@ -34,6 +36,7 @@ export type DayRecord = {
   photoPath: string | null;
   diaryMark: boolean;
   checklist: CheckItem[];
+  voicePath: string | null;
 };
 
 export type MonthState = {

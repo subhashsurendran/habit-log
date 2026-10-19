@@ -202,17 +202,21 @@ export function TemplatesScreen({
       {!fatal && !board ? <Text style={ui.body}>Opening…</Text> : null}
       {board && board.templates.length === 0 ? <Text style={ui.quiet}>No templates yet.</Text> : null}
       {board?.templates.map((template) => (
-        <View key={template.id} style={ui.card} testID={`template-${template.id}`}>
+        <Pressable
+          key={template.id}
+          style={ui.card}
+          accessibilityLabel={`Start ${template.name}`}
+          testID={`template-start-${template.id}`}
+          onPress={() => start(template.id)}
+        >
           <Text style={ui.body}>{template.name}</Text>
           {template.habits.map((habit, index) => (
             <Text key={`${habit.name}-${index}`} style={ui.quiet}>
               {habit.name} · {kindLabel(habit.entry)}
             </Text>
           ))}
-          <Pressable style={ui.button} testID={`template-start-${template.id}`} onPress={() => start(template.id)}>
-            <Text style={ui.buttonText}>Start this month</Text>
-          </Pressable>
-        </View>
+          <Text style={ui.quiet}>Start this month</Text>
+        </Pressable>
       ))}
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>

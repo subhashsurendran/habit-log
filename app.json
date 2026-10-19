@@ -10,14 +10,26 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "CFBundleDisplayName": "MyDTC"
+        "CFBundleDisplayName": "MyDTC",
+        "NSMicrophoneUsageDescription": "MyDTC uses the microphone for a journal voice note stored on this phone.",
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true
       }
     },
     "android": {
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#16121C",
+          "image": "./assets/mydtc-logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ]
     ]
   }
 }

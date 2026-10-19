@@ -27,7 +27,7 @@ const styles = StyleSheet.create({
     backgroundColor: ink.ground,
   },
   button: {
-    height: 36,
+    height: 44,
     justifyContent: "center",
     paddingHorizontal: 14,
     borderWidth: 1,

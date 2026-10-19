@@ -5,14 +5,17 @@ import { BrandLockup } from "./BrandLockup";
 import {
   DISPLAY_NAME_KEY,
   loadDashboard,
+  markDoneToday,
   openAppDatabase,
   writeSetting,
   type DashboardState,
 } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { greetingLine } from "./greet";
+import { dateFor, monthTitle } from "./month";
 import { validateCallName } from "./names";
-import { scoreStoredMonth } from "./score";
+import { syncFollowUp } from "./notify";
+import { openTodayHabits, scoreStoredMonth, type OpenHabit } from "./score";
 import { ui } from "./theme";
 
 export function HomeScreen({
@@ -20,12 +23,14 @@ export function HomeScreen({
   onName,
   onOpenToday,
   onAddHabit,
+  onOpenMonth,
   onGesture,
 }: {
   name: string | null;
   onName: (name: string) => void;
   onOpenToday: () => void;
   onAddHabit: () => void;
+  onOpenMonth: (monthId: string) => void;
   onGesture: () => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -69,7 +74,38 @@ export function HomeScreen({
       .catch((error: unknown) => setBanner(errorText(error)));
   }
 
+  function markOpen(habit: OpenHabit) {
+    if (!board) return;
+    onGesture();
+    const today = new Date();
+    const monthId = board.current.id;
+    void openAppDatabase()
+      .then(async (database) => {
+        const entry = await markDoneToday(database, monthId, habit.id, today);
+        if (!entry) {
+          setBanner("Add a line on Today first.");
+          return;
+        }
+        if (entry === "tick" || entry === "timer") {
+          const result = await syncFollowUp({
+            habitId: habit.id,
+            habitName: habit.name,
+            date: dateFor(today.getFullYear(), today.getMonth() + 1, today.getDate()),
+            hours: habit.followUpHours,
+            completed: true,
+          });
+          setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null);
+        } else {
+          setBanner(null);
+        }
+        setBoard(await loadDashboard(database));
+      })
+      .catch((error: unknown) => setBanner(errorText(error)));
+  }
+
   const score = board ? scoreStoredMonth(board.current) : null;
+  const open = board ? openTodayHabits(board.current) : [];
+  const habitCount = board?.current.habits.length ?? 0;
 
   return (
     <ScrollView
@@ -114,8 +150,34 @@ export function HomeScreen({
         {score && score.percent == null ? <Text style={ui.body}>No closed days yet</Text> : null}
         {score && score.percent != null ? <Text style={ui.percent}>{score.percent}%</Text> : null}
       </View>
+      {board && habitCount > 0 && open.length === 0 ? (
+        <Text style={ui.quiet} testID="done-for-today">
+          Done for today.
+        </Text>
+      ) : null}
+      {open.length ? (
+        <View style={ui.stack} testID="open-today">
+          <Text style={ui.section}>
+            {open.length} still open today
+          </Text>
+          {open.map((habit) => (
+            <View key={habit.id} style={ui.row}>
+              <Text style={[ui.body, { flex: 1 }]}>{habit.name}</Text>
+              <Pressable
+                style={ui.button}
+                accessibilityLabel={`Done, ${habit.name}`}
+                testID={`open-done-${habit.id}`}
+                onPress={() => markOpen(habit)}
+              >
+                <Text style={ui.buttonText}>Done</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <Pressable
         style={ui.primary}
+        accessibilityLabel="Track today"
         testID="track-today"
         onPress={() => {
           onGesture();
@@ -126,6 +188,7 @@ export function HomeScreen({
       </Pressable>
       <Pressable
         style={[ui.button, { alignSelf: "center" }]}
+        accessibilityLabel="Add habit"
         testID="add-habit"
         onPress={() => {
           onGesture();
@@ -134,6 +197,25 @@ export function HomeScreen({
       >
         <Text style={ui.buttonText}>Add habit</Text>
       </Pressable>
+      {board && board.past.length ? (
+        <View style={ui.stack} testID="past-months">
+          <Text style={ui.section}>Past months</Text>
+          {board.past.map((month) => (
+            <Pressable
+              key={month.id}
+              style={ui.button}
+              accessibilityLabel={monthTitle(month.year, month.month)}
+              testID={`past-${month.id}`}
+              onPress={() => {
+                onGesture();
+                onOpenMonth(month.id);
+              }}
+            >
+              <Text style={ui.buttonText}>{monthTitle(month.year, month.month)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>
   );

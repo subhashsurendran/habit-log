@@ -173,6 +173,7 @@ function Shell() {
             onName={(name) => setPrefs({ ...prefs, name })}
             onOpenToday={() => push({ kind: "today" })}
             onAddHabit={() => push({ kind: "today", openAdd: true })}
+            onOpenMonth={(monthId) => push({ kind: "month", monthId })}
             onGesture={onGesture}
           />
         ) : null}
@@ -181,6 +182,7 @@ function Shell() {
             key={monthId}
             monthId={monthId}
             openAdd={place.kind === "today" && place.openAdd === true}
+            review={place.kind === "month"}
             bindBack={bindBack}
           />
         ) : null}

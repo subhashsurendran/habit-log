@@ -3,11 +3,12 @@ import { ScrollView, Text, View } from "react-native";
 
 import { loadMonth, openAppDatabase } from "./db";
 import { logOpenFailed, OPEN_FAILED } from "./errors";
-import { scoreStoredMonth, type MonthScore } from "./score";
+import { scoreStoredMonth, weeklyFocusTag, type MonthScore } from "./score";
 import { ui } from "./theme";
 
 export function ScoreScreen() {
   const [score, setScore] = useState<MonthScore | null>(null);
+  const [focus, setFocus] = useState<{ label: string; misses: number } | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
 
   useEffect(() => {
@@ -15,7 +16,9 @@ export function ScoreScreen() {
     openAppDatabase()
       .then((database) => loadMonth(database))
       .then((month) => {
-        if (live) setScore(scoreStoredMonth(month));
+        if (!live) return;
+        setScore(scoreStoredMonth(month));
+        setFocus(weeklyFocusTag(month));
       })
       .catch(() => {
         if (!live) return;
@@ -34,12 +37,18 @@ export function ScoreScreen() {
       </Text>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
       {!fatal && !score ? <Text style={ui.body}>Opening…</Text> : null}
-      {score ? <ScoreBody score={score} /> : null}
+      {score ? <ScoreBody score={score} focus={focus} /> : null}
     </ScrollView>
   );
 }
 
-function ScoreBody({ score }: { score: MonthScore }) {
+function ScoreBody({
+  score,
+  focus,
+}: {
+  score: MonthScore;
+  focus: { label: string; misses: number } | null;
+}) {
   return (
     <View testID="month-score-screen" style={ui.stack}>
       {score.percent == null ? (
@@ -59,15 +68,15 @@ function ScoreBody({ score }: { score: MonthScore }) {
           </Text>
         </View>
       )}
-      <Text style={ui.section}>Focus</Text>
-      {score.focus.length ? (
-        score.focus.map((item, index) => (
-          <Text key={item.label} style={ui.body} testID={`score-focus-${index}`}>
-            {item.label} · {item.misses}
-          </Text>
-        ))
+      <Text style={ui.section}>This week</Text>
+      {focus ? (
+        <Text style={ui.body} testID="score-week">
+          {focus.label} · {focus.misses}
+        </Text>
       ) : (
-        <Text style={ui.body}>None yet</Text>
+        <Text style={ui.body} testID="score-week">
+          None yet
+        </Text>
       )}
     </View>
   );

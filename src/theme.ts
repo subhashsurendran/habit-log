@@ -51,7 +51,7 @@ export const ui = StyleSheet.create({
   },
   button: {
     alignSelf: "flex-start",
-    height: 36,
+    height: 44,
     justifyContent: "center",
     borderWidth: 1,
     borderColor: ink.line,
