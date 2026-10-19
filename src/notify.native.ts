@@ -2,6 +2,7 @@ import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 
 import type { FollowUpRequest, NotifyResult, ReminderRequest } from "./notify";
+import { reminderBody } from "./reminderCopy";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -32,11 +33,27 @@ async function ensureChannel(): Promise<void> {
   });
 }
 
-async function allowed(): Promise<boolean> {
+async function alertsAllowed(): Promise<boolean> {
   const current = await Notifications.getPermissionsAsync();
-  if (current.granted) return true;
-  const asked = await Notifications.requestPermissionsAsync();
-  return asked.granted;
+  if (canAlert(current)) return true;
+  const asked = await Notifications.requestPermissionsAsync({
+    ios: {
+      allowAlert: true,
+      allowBadge: false,
+      allowSound: true,
+    },
+  });
+  return canAlert(asked);
+}
+
+function canAlert(status: Notifications.NotificationPermissionsStatus): boolean {
+  const ios = status.ios;
+  if (ios) {
+    return (
+      ios.status === Notifications.IosAuthorizationStatus.AUTHORIZED && ios.allowsAlert !== false
+    );
+  }
+  return status.granted;
 }
 
 async function cancelId(identifier: string): Promise<void> {
@@ -51,7 +68,7 @@ export async function syncFollowUp(request: FollowUpRequest): Promise<NotifyResu
   await cancelId(followUpId(request.habitId, request.date));
   if (!request.completed || request.hours == null) return "cancelled";
   try {
-    if (!(await allowed())) return "unavailable";
+    if (!(await alertsAllowed())) return "unavailable";
     await ensureChannel();
     const when = new Date(Date.now() + request.hours * 60 * 60 * 1000);
     await Notifications.scheduleNotificationAsync({
@@ -75,25 +92,43 @@ export async function syncFollowUp(request: FollowUpRequest): Promise<NotifyResu
 export async function syncDailyReminder(request: ReminderRequest): Promise<NotifyResult> {
   await cancelId(reminderId(request.habitId));
   if (request.hour == null || request.minute == null) return "cancelled";
+  if (!Number.isInteger(request.hour) || !Number.isInteger(request.minute)) return "unavailable";
+  if (request.hour < 0 || request.hour > 23 || request.minute < 0 || request.minute > 59) {
+    return "unavailable";
+  }
   try {
-    if (!(await allowed())) return "unavailable";
+    if (!(await alertsAllowed())) return "unavailable";
     await ensureChannel();
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     await Notifications.scheduleNotificationAsync({
       identifier: reminderId(request.habitId),
       content: {
         title: "MyDTC",
-        body: request.habitName,
+        body: reminderBody(request.habitName),
+        sound: true,
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
+        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
         hour: request.hour,
         minute: request.minute,
+        second: 0,
+        repeats: true,
+        ...(timezone ? { timezone } : {}),
         channelId: CHANNEL,
       },
     });
     return "scheduled";
   } catch {
     return "unavailable";
+  }
+}
+
+export async function reminderIsScheduled(habitId: string): Promise<boolean> {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    return scheduled.some((item) => item.identifier === reminderId(habitId));
+  } catch {
+    return false;
   }
 }
 
@@ -104,7 +139,7 @@ export async function syncEveningWrap(hour: number | null, minute: number | null
   await cancelId(EVENING_ID);
   if (hour == null || minute == null) return "cancelled";
   try {
-    if (!(await allowed())) return "unavailable";
+    if (!(await alertsAllowed())) return "unavailable";
     await ensureChannel();
     await Notifications.scheduleNotificationAsync({
       identifier: EVENING_ID,

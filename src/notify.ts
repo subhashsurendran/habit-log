@@ -31,6 +31,11 @@ export async function syncDailyReminder(_request: ReminderRequest): Promise<Noti
 
 export async function cancelHabitNotifications(_habitId: string): Promise<void> {}
 
+/** The browser cannot schedule a notification, so a stored time is never armed. */
+export async function reminderIsScheduled(_habitId: string): Promise<boolean> {
+  return false;
+}
+
 /** One daily reminder. Passing null clears it. A second call replaces the first. */
 export async function syncEveningWrap(hour: number | null, minute: number | null): Promise<NotifyResult> {
   if (hour == null || minute == null) return "cancelled";

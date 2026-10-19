@@ -4,13 +4,14 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
-import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, readSetting, writeSetting } from "./src/db";
+import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
 import { currentMonth } from "./src/month";
 import { MonthScreen } from "./src/MonthScreen";
 import { callNameOrNull } from "./src/names";
+import { syncDailyReminder } from "./src/notify";
 import { ScoreScreen } from "./src/ScoreScreen";
 import { ScreenNav } from "./src/ScreenNav";
 import { TabBar, type TabId } from "./src/TabBar";
@@ -84,6 +85,22 @@ function Shell() {
         if (flag !== "1") await writeSetting(database, SOUND_MUTED_KEY, "1");
         if (!live) return;
         setPrefs({ name: callNameOrNull(stored), muted: true });
+        try {
+          const month = await loadMonth(database);
+          for (const habit of month.habits) {
+            if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
+              continue;
+            }
+            await syncDailyReminder({
+              habitId: habit.id,
+              habitName: habit.name,
+              hour: habit.reminderHour,
+              minute: habit.reminderMinute,
+            });
+          }
+        } catch {
+          // A reminder that cannot be scheduled stays off. The rest of the app still opens.
+        }
       })
       .catch(() => {
         if (!live) return;

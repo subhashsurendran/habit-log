@@ -65,7 +65,7 @@ import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
 import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./month";
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
-import { cancelHabitNotifications, syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
+import { cancelHabitNotifications, reminderIsScheduled, syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
@@ -652,6 +652,17 @@ export function MonthScreen({
               return result;
             });
             if (changed.entryChanged) await cancelHabitNotifications(editingHabit.id);
+            else if (editingHabit.entry === "timer") {
+              const result = await syncDailyReminder({
+                habitId: editingHabit.id,
+                habitName: name,
+                hour: editingHabit.reminderHour,
+                minute: editingHabit.reminderMinute,
+              });
+              if (editingHabit.reminderHour != null && result === "unavailable") {
+                setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
+              }
+            }
             setRenameTarget(null);
           }}
           onRemove={async () => {
@@ -703,7 +714,7 @@ export function MonthScreen({
           title={
             timeEdit.mode === "cell"
               ? `${timeEdit.habit.name} · day ${timeEdit.day}`
-              : `Remind at · ${timeEdit.habit.name}`
+              : `Daily reminder · ${timeEdit.habit.name}`
           }
           hour={
             timeEdit.mode === "cell"
@@ -728,11 +739,14 @@ export function MonthScreen({
                   hour,
                   minute,
                 });
+                if (result === "scheduled") {
+                  setBanner(`Daily reminder set for ${formatClock12(hour, minute)}.`);
+                }
                 if (result === "stored") {
                   setBanner("Saved on this device. The browser will not notify you.");
                 }
                 if (result === "unavailable") {
-                  setBanner("Saved. The notification was not scheduled.");
+                  setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
                 }
               });
               setTimeEdit(null);
@@ -1226,6 +1240,20 @@ function RenameDialog({
   const [dayAsk, setDayAsk] = useState(false);
   const slug = testSlug(habit.name);
   const filled = normalizeChecklist(lines).length;
+  const [reminderOn, setReminderOn] = useState(false);
+  useEffect(() => {
+    if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
+      setReminderOn(false);
+      return;
+    }
+    let live = true;
+    void reminderIsScheduled(habit.id).then((on) => {
+      if (live) setReminderOn(on);
+    });
+    return () => {
+      live = false;
+    };
+  }, [habit.entry, habit.id, habit.reminderHour, habit.reminderMinute]);
 
   function addSubtask() {
     if (lines.length >= CHECKLIST_MAX) {
@@ -1476,8 +1504,25 @@ function RenameDialog({
         </View>
       )}
       {habit.entry === "timer" ? (
-        <Pressable testID={`remind-${slug}`} onPress={onRemind}>
-          <Text style={styles.missFlag}>Remind at {remind}</Text>
+        <Pressable
+          testID={`remind-${slug}`}
+          style={styles.button}
+          accessibilityLabel={
+            habit.reminderHour == null
+              ? "Daily reminder"
+              : reminderOn
+                ? `Daily reminder ${remind}`
+                : "Reminder not on"
+          }
+          onPress={onRemind}
+        >
+          <Text style={styles.buttonText}>
+            {habit.reminderHour == null
+              ? "Daily reminder"
+              : reminderOn
+                ? `Daily reminder ${remind}`
+                : "Reminder not on"}
+          </Text>
         </Pressable>
       ) : null}
       <View style={styles.actions}>
