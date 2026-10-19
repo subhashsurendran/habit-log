@@ -247,7 +247,7 @@ export function MonthScreen({
         <View style={styles.actions}>
           {month.locked ? null : (
             <Pressable style={styles.button} onPress={() => setAddOpen(true)} testID="add-row">
-              <Text style={styles.buttonText}>Add row</Text>
+              <Text style={styles.buttonText}>Add habit</Text>
             </Pressable>
           )}
           <Pressable
@@ -259,7 +259,7 @@ export function MonthScreen({
               );
             }}
           >
-            <Text style={styles.buttonText}>{month.locked ? "Unlock rows" : "Lock rows"}</Text>
+            <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
           </Pressable>
           <Pressable
             style={[styles.button, styles.buttonOn]}
@@ -782,7 +782,7 @@ function AddDialog({
   const entry: Entry = reserved ? "timer" : chosen;
   return (
     <Dialog
-      title="Add row"
+      title="Add habit"
       onClose={onClose}
       footer={
         <View style={styles.actions}>

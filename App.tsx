@@ -7,6 +7,7 @@ import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
 import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
+import { ProfileScreen } from "./src/ProfileScreen";
 import { currentMonth } from "./src/month";
 import { MonthScreen } from "./src/MonthScreen";
 import { callNameOrNull } from "./src/names";
@@ -24,7 +25,8 @@ type Place =
   | { kind: "score" }
   | { kind: "templates" }
   | { kind: "template-editor" }
-  | { kind: "month"; monthId: string };
+  | { kind: "month"; monthId: string }
+  | { kind: "profile" };
 
 class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
   state: BoundaryState = { message: null };
@@ -57,7 +59,7 @@ class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
 }
 
 function tabFor(place: Place): TabId {
-  if (place.kind === "home") return "home";
+  if (place.kind === "home" || place.kind === "profile") return "home";
   if (place.kind === "score") return "score";
   if (place.kind === "templates" || place.kind === "template-editor") return "templates";
   return "today";
@@ -165,14 +167,11 @@ function Shell() {
         {!fatal && prefs && place.kind === "home" ? (
           <HomeScreen
             name={prefs.name}
-            muted={prefs.muted}
             onName={(name) => setPrefs({ ...prefs, name })}
-            onMuted={(muted) => setPrefs({ ...prefs, muted })}
             onOpenToday={() => push({ kind: "today" })}
-            onCreateHabit={() => push({ kind: "today", openAdd: true })}
+            onAddHabit={() => push({ kind: "today", openAdd: true })}
+            onOpenProfile={() => push({ kind: "profile" })}
             onGesture={onGesture}
-            onStart={() => loop.current?.start()}
-            onStop={() => loop.current?.stop()}
           />
         ) : null}
         {!fatal && prefs && (place.kind === "today" || place.kind === "month") ? (
@@ -184,6 +183,17 @@ function Shell() {
           />
         ) : null}
         {!fatal && prefs && place.kind === "score" ? <ScoreScreen /> : null}
+        {!fatal && prefs && place.kind === "profile" ? (
+          <ProfileScreen
+            name={prefs.name}
+            muted={prefs.muted}
+            onName={(name) => setPrefs({ ...prefs, name })}
+            onMuted={(muted) => setPrefs({ ...prefs, muted })}
+            onGesture={onGesture}
+            onStart={() => loop.current?.start()}
+            onStop={() => loop.current?.stop()}
+          />
+        ) : null}
         {!fatal && prefs && (place.kind === "templates" || place.kind === "template-editor") ? (
           <TemplatesScreen
             key={place.kind}

@@ -4,7 +4,6 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { BrandLockup } from "./BrandLockup";
 import {
   DISPLAY_NAME_KEY,
-  SOUND_MUTED_KEY,
   loadDashboard,
   openAppDatabase,
   writeSetting,
@@ -18,24 +17,18 @@ import { ui } from "./theme";
 
 export function HomeScreen({
   name,
-  muted,
   onName,
-  onMuted,
   onOpenToday,
-  onCreateHabit,
+  onAddHabit,
+  onOpenProfile,
   onGesture,
-  onStart,
-  onStop,
 }: {
   name: string | null;
-  muted: boolean;
   onName: (name: string) => void;
-  onMuted: (muted: boolean) => void;
   onOpenToday: () => void;
-  onCreateHabit: () => void;
+  onAddHabit: () => void;
+  onOpenProfile: () => void;
   onGesture: () => void;
-  onStart: () => void;
-  onStop: () => void;
 }) {
   const [draft, setDraft] = useState("");
   const [board, setBoard] = useState<DashboardState | null>(null);
@@ -78,21 +71,6 @@ export function HomeScreen({
       .catch((error: unknown) => setBanner(errorText(error)));
   }
 
-  function toggleMute() {
-    const next = !muted;
-    onMuted(next);
-    if (next) onStop();
-    else onStart();
-    void openAppDatabase()
-      .then((database) => writeSetting(database, SOUND_MUTED_KEY, next ? "1" : "0"))
-      .catch((error: unknown) => {
-        onMuted(!next);
-        if (next) onStart();
-        else onStop();
-        setBanner(errorText(error));
-      });
-  }
-
   const score = board ? scoreStoredMonth(board.current) : null;
 
   return (
@@ -105,8 +83,15 @@ export function HomeScreen({
       <View>
         <View style={ui.row}>
           <View style={{ flex: 1 }} />
-          <Pressable style={ui.button} testID="mute" onPress={toggleMute} accessibilityLabel={muted ? "Muted" : "Mute"}>
-            <Text style={ui.buttonText}>{muted ? "Muted" : "Mute"}</Text>
+          <Pressable
+            style={ui.button}
+            testID="profile"
+            onPress={() => {
+              onGesture();
+              onOpenProfile();
+            }}
+          >
+            <Text style={ui.buttonText}>Profile</Text>
           </Pressable>
         </View>
         <BrandLockup />
@@ -158,13 +143,13 @@ export function HomeScreen({
       </Pressable>
       <Pressable
         style={[ui.button, { alignSelf: "center" }]}
-        testID="create-habit"
+        testID="add-habit"
         onPress={() => {
           onGesture();
-          onCreateHabit();
+          onAddHabit();
         }}
       >
-        <Text style={ui.buttonText}>Create a habit</Text>
+        <Text style={ui.buttonText}>Add habit</Text>
       </Pressable>
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>

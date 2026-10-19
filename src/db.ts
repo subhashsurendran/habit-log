@@ -1436,7 +1436,7 @@ async function assertUnlocked(db: SQLiteDatabase, monthId: string): Promise<void
     monthId,
   );
   if (!month) throw new Error("This month is not ready.");
-  if (Number(month.locked) === 1) throw new Error("Rows are locked.");
+  if (Number(month.locked) === 1) throw new Error("Habits are locked.");
 }
 
 async function insertMark(
