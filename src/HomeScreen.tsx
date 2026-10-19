@@ -22,6 +22,7 @@ export function HomeScreen({
   onName,
   onMuted,
   onOpenToday,
+  onCreateHabit,
   onGesture,
   onStart,
   onStop,
@@ -31,6 +32,7 @@ export function HomeScreen({
   onName: (name: string) => void;
   onMuted: (muted: boolean) => void;
   onOpenToday: () => void;
+  onCreateHabit: () => void;
   onGesture: () => void;
   onStart: () => void;
   onStop: () => void;
@@ -153,6 +155,16 @@ export function HomeScreen({
         }}
       >
         <Text style={ui.primaryText}>Track today</Text>
+      </Pressable>
+      <Pressable
+        style={[ui.button, { alignSelf: "center" }]}
+        testID="create-habit"
+        onPress={() => {
+          onGesture();
+          onCreateHabit();
+        }}
+      >
+        <Text style={ui.buttonText}>Create a habit</Text>
       </Pressable>
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>

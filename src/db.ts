@@ -366,17 +366,6 @@ export type DashboardState = {
   templates: HabitTemplate[];
 };
 
-export function listPastMonths(db: SQLiteDatabase, now = new Date()): Promise<StoredMonth[]> {
-  return withDbLock(async () => {
-    const current = currentMonth(now);
-    const past = await db.getAllAsync<{ id: string; year: number; month: number }>(
-      "SELECT id, year, month FROM months WHERE id != ? ORDER BY id DESC",
-      current.id,
-    );
-    return past.map((row) => ({ id: row.id, year: Number(row.year), month: Number(row.month) }));
-  });
-}
-
 export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<DashboardState> {
   return withDbLock(async () => {
     const current = await loadMonthNow(db, now);

@@ -20,7 +20,7 @@ type BoundaryState = { message: string | null };
 type Prefs = { name: string | null; muted: boolean };
 type Place =
   | { kind: "home" }
-  | { kind: "today" }
+  | { kind: "today"; openAdd?: boolean }
   | { kind: "score" }
   | { kind: "templates" }
   | { kind: "template-editor" }
@@ -168,6 +168,7 @@ function Shell() {
             onName={(name) => setPrefs({ ...prefs, name })}
             onMuted={(muted) => setPrefs({ ...prefs, muted })}
             onOpenToday={() => push({ kind: "today" })}
+            onCreateHabit={() => push({ kind: "today", openAdd: true })}
             onGesture={onGesture}
             onStart={() => loop.current?.start()}
             onStop={() => loop.current?.stop()}
@@ -177,8 +178,7 @@ function Shell() {
           <MonthScreen
             key={monthId}
             monthId={monthId}
-            showPast={place.kind === "today"}
-            onOpenPast={(id) => push({ kind: "month", monthId: id })}
+            openAdd={place.kind === "today" && place.openAdd === true}
             bindBack={bindBack}
           />
         ) : null}

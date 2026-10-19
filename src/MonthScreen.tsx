@@ -26,7 +26,6 @@ import {
   clearCell,
   cycleTick,
   moveHabit,
-  listPastMonths,
   openMonth,
   openAppDatabase,
   removeHabit,
@@ -42,7 +41,6 @@ import {
   setTickNote,
   setTime,
   wrapToday,
-  type StoredMonth,
 } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
@@ -85,13 +83,11 @@ function rowHeight(_entry: Entry): number {
 
 export function MonthScreen({
   monthId,
-  showPast = false,
-  onOpenPast,
+  openAdd = false,
   bindBack,
 }: {
   monthId: string;
-  showPast?: boolean;
-  onOpenPast?: (monthId: string) => void;
+  openAdd?: boolean;
   bindBack?: (handler: (() => boolean) | null) => void;
 }) {
   const windowWidth = useWindowDimensions().width;
@@ -102,7 +98,7 @@ export function MonthScreen({
   const [month, setMonth] = useState<MonthState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(openAdd);
   const [timeEdit, setTimeEdit] = useState<
     { mode: "cell"; habit: Habit; day: number } | { mode: "reminder"; habit: Habit } | null
   >(null);
@@ -110,7 +106,6 @@ export function MonthScreen({
   const [checklistEdit, setChecklistEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [noteEdit, setNoteEdit] = useState<{ habit: Habit; day: number } | null>(null);
   const [renameTarget, setRenameTarget] = useState<Habit | null>(null);
-  const [past, setPast] = useState<StoredMonth[]>([]);
   const checklistRef = useRef(checklistEdit);
   checklistRef.current = checklistEdit;
 
@@ -142,22 +137,6 @@ export function MonthScreen({
     });
     return () => bindBack(null);
   }, [bindBack]);
-
-  useEffect(() => {
-    if (!showPast) return;
-    let live = true;
-    openAppDatabase()
-      .then((database) => listPastMonths(database))
-      .then((rows) => {
-        if (live) setPast(rows);
-      })
-      .catch(() => {
-        if (live) setPast([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, [showPast]);
 
   const records = useMemo(() => {
     const map = new Map<string, DayRecord>();
@@ -296,24 +275,6 @@ export function MonthScreen({
           </Pressable>
         </View>
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
-        {showPast ? (
-          <View style={styles.pastRow} testID="past-months">
-            {past.length ? (
-              past.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={styles.button}
-                  testID={`past-month-${item.id}`}
-                  onPress={() => onOpenPast?.(item.id)}
-                >
-                  <Text style={styles.buttonText}>{monthTitle(item.year, item.month)}</Text>
-                </Pressable>
-              ))
-            ) : (
-              <Text style={styles.quiet}>No past months yet.</Text>
-            )}
-          </View>
-        ) : null}
       </View>
       <View style={styles.monthBar}>
         <Text style={styles.month} testID="month-title">
@@ -1691,7 +1652,6 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, backgroundColor: "#16121C" },
   controls: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
-  pastRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   monthBar: { paddingHorizontal: 16, marginTop: 16, marginBottom: 8 },
   sheet: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
   sheetBody: { flex: 1, minHeight: 0 },

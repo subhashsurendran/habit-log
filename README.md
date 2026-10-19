@@ -14,7 +14,7 @@ npm run web
 
 That opens MyDTC in the browser. Four tabs sit at the bottom: Home, Today, Score, and Templates. Home asks what to call you the first time, then greets you by name. The mark and the tagline stay on Home. Track today opens this month. Back, on every other screen, returns one step. Exit returns to Home. Neither control covers the grid or the tab bar.
 
-Today is the month grid, with the month and year just above it. A past month opens from Today. Score is this month's efficiency. Templates lets you name a list, add habits, and save it. Starting a month from a template copies those habits only. Day marks are not part of the template.
+Today is the month grid, with the month and year just above it. Home has Track today and a quiet Create a habit, which opens the add-row flow. Score is this month's efficiency. Templates lets you name a list, add habits, and save it. Starting a month from a template copies those habits only. Day marks are not part of the template.
 
 A mute control on Home remembers whether the calm loop plays. The loop starts on a tap. The name and that choice stay on the device.
 
