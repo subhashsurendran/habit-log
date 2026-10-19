@@ -58,6 +58,8 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+    minHeight: 0,
+    height: "100%",
     backgroundColor: "#16121C",
   },
   fallback: {

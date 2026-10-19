@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import {
   Modal,
   Platform,
@@ -59,9 +59,27 @@ import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } f
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 
 const LABEL_W = 168;
-const DAY_W = 64;
+const LABEL_MIN = 120;
+const DAY_PHONE = 48;
+const DAY_DESK = 64;
 const HEADER_H = 46;
 const ROW_H = 56;
+
+function gridMetrics(windowWidth: number): { labelWidth: number; track: number; dayWidth: number } {
+  const narrow = windowWidth < 520;
+  const labelWidth = narrow
+    ? Math.min(LABEL_W, Math.max(LABEL_MIN, Math.round(windowWidth * 0.38)))
+    : LABEL_W;
+  const track = Math.max(1, windowWidth - labelWidth);
+  const columns = Math.max(1, Math.floor(track / (narrow ? DAY_PHONE : DAY_DESK)));
+  return { labelWidth, track, dayWidth: Math.floor(track / columns) };
+}
+
+function todayScrollX(todayDay: number, dayWidth: number, track: number, dayCount: number): number {
+  const max = Math.max(0, dayCount * dayWidth - track);
+  const centered = (todayDay - 1) * dayWidth - (track - dayWidth) / 2;
+  return Math.max(0, Math.min(max, Math.round(centered)));
+}
 
 function rowHeight(_entry: Entry): number {
   return ROW_H;
@@ -71,6 +89,8 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
   const windowWidth = useWindowDimensions().width;
   const dbRef = useRef<SQLiteDatabase | null>(null);
   const queue = useRef(Promise.resolve());
+  const dayScrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  const revealedKey = useRef("");
   const [month, setMonth] = useState<MonthState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -165,8 +185,22 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
   const editingHabit = renameTarget
     ? (month.habits.find((habit) => habit.id === renameTarget.id) ?? null)
     : null;
-  const gridWidth = Math.max(220, windowWidth - LABEL_W);
-  const bodyHeight = HEADER_H + month.habits.reduce((sum, habit) => sum + rowHeight(habit.entry), 0);
+  const gridMonth = month;
+  const { labelWidth, track, dayWidth } = gridMetrics(windowWidth);
+  const bodyHeight = HEADER_H + gridMonth.habits.reduce((sum, habit) => sum + rowHeight(habit.entry), 0);
+
+  function revealToday() {
+    if (todayDay == null) return;
+    const key = `${gridMonth.id}:${todayDay}:${dayWidth}:${track}`;
+    if (revealedKey.current === key) return;
+    const scroller = dayScrollRef.current;
+    if (!scroller) return;
+    revealedKey.current = key;
+    scroller.scrollTo({
+      x: todayScrollX(todayDay, dayWidth, track, days.length),
+      animated: false,
+    });
+  }
 
   return (
     <SafeAreaView style={styles.screen} testID="month-grid">
@@ -221,10 +255,10 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
         </Text>
       </View>
 
-      <ScrollView style={styles.vertical}>
+      <ScrollView style={styles.vertical} testID="row-scroll" nestedScrollEnabled>
         <View style={[styles.gridRow, { width: windowWidth }]}>
-          <View style={{ width: LABEL_W }}>
-            <View style={[styles.corner, styles.line]}>
+          <View style={{ width: labelWidth }}>
+            <View style={[styles.corner, styles.line, { width: labelWidth }]}>
               <Text style={styles.cornerText}>Task</Text>
             </View>
             {month.habits.map((habit) => (
@@ -232,6 +266,7 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
                 key={habit.id}
                 habit={habit}
                 locked={month.locked}
+                labelWidth={labelWidth}
                 onPress={() => {
                   if (month.locked) return;
                   setTimeEdit(null);
@@ -240,7 +275,15 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
               />
             ))}
           </View>
-          <ScrollView horizontal testID="day-scroll" style={{ width: gridWidth, height: bodyHeight }}>
+          <ScrollView
+            horizontal
+            ref={dayScrollRef}
+            testID="day-scroll"
+            nestedScrollEnabled
+            directionalLockEnabled
+            style={{ width: track, height: bodyHeight, flexGrow: 0 }}
+            onContentSizeChange={revealToday}
+          >
             <View>
               <View style={styles.dayHeaderRow}>
                 {days.map((day) => {
@@ -252,6 +295,7 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
                     style={[
                       styles.dayHeader,
                       styles.line,
+                      { width: dayWidth },
                       weekend && styles.weekend,
                       todayDay === day && styles.today,
                     ]}
@@ -291,6 +335,7 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
                         day={day}
                         record={record}
                         height={rowHeight(habit.entry)}
+                        dayWidth={dayWidth}
                         isWeekend={isWeekend(month.year, month.month, day)}
                         isToday={todayDay === day}
                         onPress={() => {
@@ -680,10 +725,12 @@ function rowSubtitle(habit: Habit): string {
 function NameCell({
   habit,
   locked,
+  labelWidth,
   onPress,
 }: {
   habit: Habit;
   locked: boolean;
+  labelWidth: number;
   onPress: () => void;
 }) {
   return (
@@ -691,7 +738,7 @@ function NameCell({
       disabled={locked}
       onPress={onPress}
       testID={`habit-${testSlug(habit.name)}`}
-      style={[styles.nameCell, styles.line, { height: ROW_H }]}
+      style={[styles.nameCell, styles.line, { height: ROW_H, width: labelWidth }]}
     >
       <Text style={styles.habitName} numberOfLines={1}>
         {habit.name}
@@ -708,6 +755,7 @@ function DayCell({
   day,
   record,
   height,
+  dayWidth,
   isWeekend,
   isToday,
   onPress,
@@ -717,6 +765,7 @@ function DayCell({
   day: number;
   record: DayRecord | undefined;
   height: number;
+  dayWidth: number;
   isWeekend: boolean;
   isToday: boolean;
   onPress: () => void;
@@ -746,7 +795,7 @@ function DayCell({
       accessibilityLabel={cellLabel(habit, day, record)}
       onPress={onPress}
       onLongPress={onLongPress}
-      style={[styles.cell, styles.line, { height }, isWeekend && styles.weekend, isToday && styles.today]}
+      style={[styles.cell, styles.line, { height, width: dayWidth }, isWeekend && styles.weekend, isToday && styles.today]}
     >
       <Text
         testID={`mark-${slug}-${day}`}
@@ -1654,7 +1703,7 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#16121C" },
+  screen: { flex: 1, minHeight: 0, backgroundColor: "#16121C" },
   brandBlock: { paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8 },
   controls: { paddingHorizontal: 16, marginTop: 24 },
   monthBar: { paddingHorizontal: 16, marginTop: 24, marginBottom: 12 },
@@ -1677,7 +1726,7 @@ const styles = StyleSheet.create({
   buttonText: { color: "#E7DCF8", fontSize: 14, fontWeight: "600" },
   buttonOn: { backgroundColor: "#2A2340", borderColor: "#6E5A8A" },
   buttonOnText: { color: "#F6F1FF" },
-  vertical: { flex: 1 },
+  vertical: { flex: 1, minHeight: 0 },
   gridRow: { flexDirection: "row", alignItems: "flex-start" },
   line: { borderColor: "#2C2636", borderRightWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
   corner: {
@@ -1744,7 +1793,6 @@ const styles = StyleSheet.create({
   },
   dayHeaderRow: { flexDirection: "row" },
   dayHeader: {
-    width: DAY_W,
     height: HEADER_H,
     alignItems: "center",
     justifyContent: "center",
@@ -1762,7 +1810,6 @@ const styles = StyleSheet.create({
     textShadowRadius: 0,
   },
   cell: {
-    width: DAY_W,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#1C1726",
