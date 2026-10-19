@@ -980,6 +980,7 @@ function RenameDialog({
   return (
     <Dialog
       title={habit.name}
+      cover
       onClose={onClose}
       footer={
         <View>
@@ -1061,7 +1062,9 @@ function RenameDialog({
     >
       {subtasks ? (
         <View testID="subtask-section">
-          <Text style={styles.fieldLabel}>Subtasks</Text>
+          <Text style={styles.sheetHeading} accessibilityRole="header" testID="subtasks-heading">
+            Subtasks
+          </Text>
           <Text style={styles.hint}>These sit under this task, on today.</Text>
           {dayAsk ? (
             <Text style={styles.ask} testID="ask-over-12">
@@ -1608,18 +1611,23 @@ function Dialog({
   onClose,
   children,
   footer,
+  cover = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  cover?: boolean;
 }) {
   return (
-    <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard}>
+    <Modal transparent animationType={cover ? "none" : "fade"} onRequestClose={onClose}>
+      <View style={[styles.modalBackdrop, cover && styles.modalCover]}>
+        <View style={[styles.modalCard, cover && styles.modalCoverCard]}>
           <Text style={styles.modalTitle}>{title}</Text>
-          <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={[styles.modalBody, cover && styles.modalCoverBody]}
+            keyboardShouldPersistTaps="handled"
+          >
             {children}
           </ScrollView>
           {footer ? <View style={styles.modalFooter}>{footer}</View> : null}
@@ -1698,6 +1706,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
+  sheetHeading: {
+    alignSelf: "stretch",
+    marginTop: 4,
+    marginBottom: 8,
+    paddingVertical: 4,
+    backgroundColor: "#16121C",
+    color: "#F6F1FF",
+    fontSize: 22,
+    fontWeight: "800",
+    lineHeight: 28,
+  },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     borderWidth: 1,
@@ -1773,6 +1792,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
+  modalCover: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: "#16121C",
+    padding: 16,
+  },
   modalCard: {
     backgroundColor: "#1C1726",
     borderWidth: StyleSheet.hairlineWidth,
@@ -1784,7 +1812,17 @@ const styles = StyleSheet.create({
     maxHeight: "88%",
     alignSelf: "center",
   },
+  modalCoverCard: {
+    flex: 1,
+    maxWidth: "100%",
+    maxHeight: "100%",
+    width: "100%",
+    backgroundColor: "#16121C",
+    borderWidth: 0,
+    borderRadius: 0,
+  },
   modalBody: { flexShrink: 1 },
+  modalCoverBody: { flex: 1, minHeight: 0 },
   modalFooter: { paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#3A3348" },
   modalTitle: { fontSize: 18, fontWeight: "800", color: "#F6F1FF", marginBottom: 8 },
   input: {
