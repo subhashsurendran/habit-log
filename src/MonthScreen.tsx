@@ -27,6 +27,7 @@ import {
   clearCell,
   cycleTick,
   moveHabit,
+  closeAppDatabase,
   openMonth,
   openAppDatabase,
   removeHabit,
@@ -43,12 +44,13 @@ import {
   setTime,
   wrapToday,
 } from "./db";
-import { errorText } from "./errors";
+import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
 import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./month";
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, syncDailyReminder, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
+import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { BrandLockup } from "./BrandLockup";
 import { scoreMonth } from "./score";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
@@ -90,13 +92,15 @@ export function MonthScreen({ monthId, onHome }: { monthId: string; onHome: () =
         dbRef.current = database;
         setMonth(await openMonth(database, monthId));
       })
-      .catch((error: unknown) => {
-        console.error(error);
+      .catch(() => {
         if (!live) return;
-        setFatal("Could not open the log on this device.");
+        logOpenFailed();
+        setFatal(OPEN_FAILED);
       });
     return () => {
       live = false;
+      dbRef.current = null;
+      void closeAppDatabase(queue.current);
     };
   }, [monthId]);
 
@@ -1337,9 +1341,10 @@ function JournalDialog({
   onSave: (note: string, photoPath: string | null, diary: boolean) => Promise<void>;
 }) {
   const [note, setNote] = useState(record?.note ?? "");
-  const [photoPath, setPhotoPath] = useState<string | null>(record?.photoPath ?? null);
+  const keptPhoto = keepPhotoFile(record?.photoPath);
+  const [photoPath, setPhotoPath] = useState<string | null>(keptPhoto);
   const [diary, setDiary] = useState(record?.diaryMark ?? false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(record?.photoPath && !keptPhoto ? PHOTO_REFUSED : null);
   return (
     <Dialog title={`${habit.name} · day ${day}`} onClose={onClose}>
       <TextInput
@@ -1377,7 +1382,11 @@ function JournalDialog({
           <Text style={[styles.buttonText, diary && styles.buttonOnText]}>Wrote it in my diary</Text>
         </Pressable>
       </View>
-      {message ? <Text style={styles.banner}>{message}</Text> : null}
+      {message ? (
+        <Text style={styles.banner} testID="journal-message">
+          {message}
+        </Text>
+      ) : null}
       <View style={styles.actions}>
         <Pressable
           style={styles.button}

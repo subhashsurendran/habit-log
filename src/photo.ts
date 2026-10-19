@@ -1,6 +1,8 @@
 import { Directory, File, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 
+import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
+
 const MAX_BASE64 = 1_000_000;
 
 type CreatableDir = Directory & {
@@ -28,7 +30,7 @@ function safePart(value: string): string {
 
 /**
  * Copies one photo into the app document folder. The path is not in the git repo.
- * If the file system cannot take it, the JPEG stays in the on-device database as a data URL.
+ * If the file cannot be saved, the photo is refused. It is never written into the database.
  */
 export async function storeJournalPhoto(
   habitId: string,
@@ -38,18 +40,34 @@ export async function storeJournalPhoto(
   if (!base64 || base64.length > MAX_BASE64) {
     throw new Error("That photo is too large.");
   }
-  const dataUrl = `data:image/jpeg;base64,${base64}`;
+  let file: WritableFile | null = null;
   try {
+    if (!Paths.document) throw new Error(PHOTO_REFUSED);
     const folder = new Directory(Paths.document, "pencheck-photos") as CreatableDir;
     if (!folder.exists) folder.create({ intermediates: true, idempotent: true });
-    const file = new File(folder, `${safePart(habitId)}-${safePart(date)}.jpg`) as WritableFile;
+    file = new File(folder, `${safePart(habitId)}-${safePart(date)}.jpg`) as WritableFile;
     if (file.exists) file.delete();
     file.create({ overwrite: true });
     file.write(decodeBase64(base64));
-    if (!file.uri.includes("pencheck-photos")) return dataUrl;
-    return file.uri;
-  } catch {
-    return dataUrl;
+    const stored = keepPhotoFile(file.uri);
+    if (!stored) {
+      try {
+        file.delete();
+      } catch {
+        // The file was not a keeper. Leaving it would not put it in the database.
+      }
+      throw new Error(PHOTO_REFUSED);
+    }
+    return stored;
+  } catch (error) {
+    if (error instanceof Error && error.message === "That photo is too large.") throw error;
+    if (error instanceof Error && error.message === PHOTO_REFUSED) throw error;
+    try {
+      file?.delete();
+    } catch {
+      // Already gone.
+    }
+    throw new Error(PHOTO_REFUSED);
   }
 }
 

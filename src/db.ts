@@ -1,9 +1,11 @@
 import { openDatabaseAsync, type SQLiteDatabase } from "expo-sqlite";
 
 import { checklistSummary, mergeCarriedItems, normalizeChecklist, parseStoredChecklist, sameChecklist } from "./checklist";
+import { OPEN_FAILED } from "./errors";
 import { parseFollowUpHours } from "./followUp";
 import { currentMonth, dateFor, daysInMonth, monthId, nextDateInSameMonth, shouldWrapDate } from "./month";
 import { cleanName, entryForName, NAME_MAX, validateName } from "./names";
+import { keepPhotoFile } from "./photoFile";
 import { parseStoredTags, normalizeTags } from "./tags";
 import { formatClock12, parseTimeInput } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MarkSource, MonthState, TickOutcome } from "./types";
@@ -17,8 +19,25 @@ const SEED_ROWS: { suffix: string; name: string; entry: Entry }[] = [
   { suffix: "reading", name: "Reading", entry: "tick" },
 ];
 
-let opening: Promise<SQLiteDatabase> | null = null;
+const OPEN_ATTEMPTS = 5;
+
+let chain: Promise<void> = Promise.resolve();
 let dbChain: Promise<unknown> = Promise.resolve();
+let opened: Promise<SQLiteDatabase> | null = null;
+let handle: SQLiteDatabase | null = null;
+let generation = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryWake: (() => void) | null = null;
+let pageCloseBound = false;
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = chain.then(task, task);
+  chain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 function withDbLock<T>(task: () => Promise<T>): Promise<T> {
   const run = dbChain.then(task, task);
@@ -29,41 +48,136 @@ function withDbLock<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+function wakeRetry(): void {
+  if (retryTimer != null) clearTimeout(retryTimer);
+  retryTimer = null;
+  const wake = retryWake;
+  retryWake = null;
+  wake?.();
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+    retryWake = resolve;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      retryWake = null;
+      resolve();
+    }, ms);
   });
 }
 
-/**
- * A refresh can still hold the previous database handle. Opening again
- * then fails until that handle is released, so try a few times.
- */
-async function openPreparedDatabase(): Promise<SQLiteDatabase> {
-  let last: unknown;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+async function releaseHandle(db: SQLiteDatabase | null): Promise<void> {
+  if (!db) return;
+  try {
+    await db.closeAsync();
+  } catch {
+    try {
+      db.closeSync();
+    } catch {
+      // Already closed, or the page is going away.
+    }
+  }
+}
+
+function releaseHandleNow(db: SQLiteDatabase | null): void {
+  if (!db) return;
+  try {
+    db.closeSync();
+  } catch {
+    void db.closeAsync().catch(() => undefined);
+  }
+}
+
+function bindPageClose(): void {
+  if (pageCloseBound) return;
+  pageCloseBound = true;
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+  window.addEventListener("pagehide", () => {
+    releaseOpenNow();
+  });
+}
+
+function releaseOpenNow(): void {
+  generation += 1;
+  wakeRetry();
+  const current = handle;
+  const pending = opened;
+  handle = null;
+  opened = null;
+  releaseHandleNow(current);
+  if (!pending) return;
+  void pending.then(
+    (db) => {
+      if (db !== current) void releaseHandle(db);
+    },
+    () => undefined,
+  );
+}
+
+async function openPrepared(ticket: number): Promise<SQLiteDatabase> {
+  for (let attempt = 0; attempt < OPEN_ATTEMPTS; attempt += 1) {
+    if (ticket !== generation) break;
     let db: SQLiteDatabase | null = null;
     try {
       db = await openDatabaseAsync("habit-log.db");
+      if (ticket !== generation) {
+        await releaseHandle(db);
+        break;
+      }
       await prepareDatabase(db);
+      if (ticket !== generation) {
+        await releaseHandle(db);
+        break;
+      }
       return db;
-    } catch (error) {
-      last = error;
-      if (db) await db.closeAsync().catch(() => undefined);
+    } catch {
+      await releaseHandle(db);
+      if (ticket !== generation || attempt + 1 >= OPEN_ATTEMPTS) break;
       await wait(200 * (attempt + 1));
     }
   }
-  throw last;
+  throw new Error(OPEN_FAILED);
 }
 
 export function openAppDatabase(): Promise<SQLiteDatabase> {
-  if (!opening) {
-    opening = openPreparedDatabase().catch((error: unknown) => {
-      opening = null;
-      throw error;
-    });
-  }
-  return opening;
+  bindPageClose();
+  if (opened) return opened;
+  const ticket = generation;
+  let published: Promise<SQLiteDatabase>;
+  const pending = enqueue(async () => {
+    if (ticket !== generation) throw new Error(OPEN_FAILED);
+    const db = await openPrepared(ticket);
+    if (ticket !== generation) {
+      await releaseHandle(db);
+      throw new Error(OPEN_FAILED);
+    }
+    handle = db;
+    return db;
+  });
+  published = pending.catch((error: unknown) => {
+    if (opened === published) opened = null;
+    if (handle && ticket === generation) handle = null;
+    throw error instanceof Error && error.message === OPEN_FAILED ? error : new Error(OPEN_FAILED);
+  });
+  opened = published;
+  return published;
+}
+
+/** Closes the open handle after `idle` finishes. A failed open is closed inside the attempt. */
+export function closeAppDatabase(idle: Promise<unknown> = Promise.resolve()): Promise<void> {
+  generation += 1;
+  wakeRetry();
+  const pending = opened;
+  const current = handle;
+  opened = null;
+  handle = null;
+  return enqueue(async () => {
+    await idle.catch(() => undefined);
+    const db = pending ? await pending.catch(() => null) : null;
+    if (db && db !== current) await releaseHandle(db);
+    await releaseHandle(current);
+  });
 }
 
 export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
@@ -148,6 +262,26 @@ export async function prepareDatabase(db: SQLiteDatabase): Promise<void> {
   await ensureDayColumns(db);
   await ensureTimerEntry(db);
   await ensureChecklistEntry(db);
+  await dropStoredDataPhotos(db);
+}
+
+async function dropStoredDataPhotos(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    UPDATE day_records
+    SET photo_path = NULL,
+        display = CASE
+          WHEN note IS NOT NULL AND length(trim(note)) > 0 THEN 'note'
+          WHEN diary_mark = 1 THEN 'diary'
+          ELSE display
+        END
+    WHERE photo_path LIKE 'data:%'
+      AND (
+        (note IS NOT NULL AND length(trim(note)) > 0)
+        OR diary_mark = 1
+      );
+    DELETE FROM day_records
+    WHERE photo_path LIKE 'data:%';
+  `);
 }
 
 export function loadMonth(db: SQLiteDatabase, now = new Date()): Promise<MonthState> {
@@ -508,7 +642,7 @@ export async function saveJournal(
   const habit = await requireHabit(db, monthId, habitId);
   if (habit.entry !== "journal") throw new Error("This row is not a journal.");
   const note = cleanNote(rawNote, JOURNAL_NOTE_MAX);
-  const photo = photoPath && photoPath.trim() ? photoPath.trim() : null;
+  const photo = keepPhotoFile(photoPath);
   if (!note && !photo && !diaryMark) {
     await db.runAsync("DELETE FROM day_records WHERE habit_id = ? AND date = ?", habitId, date);
     return;
@@ -994,7 +1128,7 @@ async function readMonth(db: SQLiteDatabase, id: string): Promise<MonthState> {
         clockHour: row.clock_hour == null ? null : Number(row.clock_hour),
         clockMinute: row.clock_minute == null ? null : Number(row.clock_minute),
         note: row.note,
-        photoPath: row.photo_path,
+        photoPath: keepPhotoFile(row.photo_path),
         diaryMark: Number(row.diary_mark) === 1,
         checklist: parseStoredChecklist(row.checklist),
       };

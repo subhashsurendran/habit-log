@@ -32,7 +32,7 @@ Task names stay on the left. The days across the top match that month, so Februa
 
 - Add a row as Tick, Timer, Journal, or Checklist. Wake up is a timer. Meditation and Reading stay ticks. Medicine and Supplement add a starting tag (tablets or fitness) and do not change the row name.
 - A tick cycles blank, tick, cross. Hold the cell for a short note. A timer shows a clock such as 6:30 AM, and you can switch AM and PM. It never shows a tick.
-- A journal cell opens a page for a note, one photo, or "Wrote it in my diary".
+- A journal cell opens a page for a note, one photo, or "Wrote it in my diary". The photo is a file on the device. If that file cannot be saved, the photo is refused and the note can still be saved.
 - A checklist row is the main task. Tap that row name, then Add a subtask. The same control is on the day cell. Subtasks stay on today. The cell shows how many are done, such as 2/3. It is not a tick. An empty checklist becomes a cross only when the day is wrapped and the miss flag is on.
 - Adding a fourth task asks if you can complete all of them today. A day with more than 12 checklist tasks asks if you can finish that many in a day. You choose. One list stops at 24 tasks.
 - Checklist rows copy unfinished tasks to the next day when that day is wrapped. The original day still shows what was finished. This is on by default. Turn it off on the row if each day should start empty. The copy stays inside the current month, and the next day never grows past three tasks.

@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { BrandLockup } from "./BrandLockup";
 import {
+  closeAppDatabase,
   loadDashboard,
   openAppDatabase,
   saveHabitTemplate,
   startMonthFromTemplate,
   type DashboardState,
 } from "./db";
-import { errorText } from "./errors";
+import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { monthTitle } from "./month";
 import { NAME_MAX } from "./names";
 import { scoreMonth } from "./score";
@@ -19,6 +20,16 @@ export function DashboardScreen({ onOpenMonth }: { onOpenMonth: (monthId: string
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState("");
+  const work = useRef(Promise.resolve());
+
+  function follow<T>(task: Promise<T>): Promise<T> {
+    const run = work.current.then(() => task, () => task);
+    work.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   async function reload() {
     const database = await openAppDatabase();
@@ -28,13 +39,14 @@ export function DashboardScreen({ onOpenMonth }: { onOpenMonth: (monthId: string
 
   useEffect(() => {
     let live = true;
-    reload().catch((error: unknown) => {
-      console.error(error);
+    follow(reload()).catch(() => {
       if (!live) return;
-      setFatal("Could not open the log on this device.");
+      logOpenFailed();
+      setFatal(OPEN_FAILED);
     });
     return () => {
       live = false;
+      void closeAppDatabase(work.current);
     };
   }, []);
 
@@ -140,9 +152,11 @@ export function DashboardScreen({ onOpenMonth }: { onOpenMonth: (monthId: string
             style={styles.button}
             testID="template-save"
             onPress={() => {
-              void openAppDatabase()
-                .then((database) => saveHabitTemplate(database, board.current.id, templateName))
-                .then(() => reload())
+              void follow(
+                openAppDatabase()
+                  .then((database) => saveHabitTemplate(database, board.current.id, templateName))
+                  .then(() => reload()),
+              )
                 .then(() => {
                   setTemplateName("");
                   setBanner(null);
@@ -158,9 +172,11 @@ export function DashboardScreen({ onOpenMonth }: { onOpenMonth: (monthId: string
               style={styles.button}
               testID={`template-start-${template.id}`}
               onPress={() => {
-                void openAppDatabase()
-                  .then((database) => startMonthFromTemplate(database, template.id))
-                  .then(() => reload())
+                void follow(
+                  openAppDatabase()
+                    .then((database) => startMonthFromTemplate(database, template.id))
+                    .then(() => reload()),
+                )
                   .then(() => setBanner(null))
                   .catch((error: unknown) => setBanner(errorText(error)));
               }}

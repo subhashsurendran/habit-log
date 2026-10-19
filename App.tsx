@@ -13,7 +13,13 @@ class ScreenBoundary extends Component<{ children: ReactNode }, BoundaryState> {
 
   static getDerivedStateFromError(error: unknown): BoundaryState {
     const message = error instanceof Error ? error.message : "";
-    if (!message || message.length > 160 || message.includes("/")) {
+    if (
+      !message ||
+      message.length > 160 ||
+      message.includes("/") ||
+      message.includes("\\") ||
+      /sqlite|select |insert |update |delete |pragma|constraint|data:/i.test(message)
+    ) {
       return { message: "The grid could not be drawn." };
     }
     return { message };
