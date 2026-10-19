@@ -1507,6 +1507,11 @@ async function ensureHabitColumns(db: SQLiteDatabase): Promise<void> {
       "ALTER TABLE habits ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1))",
     );
   }
+  if (!columns.has("list_room")) {
+    await db.execAsync(
+      "ALTER TABLE habits ADD COLUMN list_room INTEGER NOT NULL DEFAULT 0 CHECK (list_room IN (0, 1))",
+    );
+  }
 }
 
 async function ensureDayColumns(db: SQLiteDatabase): Promise<void> {
@@ -1887,7 +1892,409 @@ export async function saveBackup(db: SQLiteDatabase): Promise<string> {
   };
   file.create({ overwrite: true });
   file.write(payload);
-  return file.uri;
+  return `mydtc-${stamp}.json`;
+}
+
+const BACKUP_NAME = /^mydtc-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9-]+Z\.json$/;
+const ROW_ID = /^[A-Za-z0-9_-]{1,80}$/;
+const MONTH_KEY = /^[0-9]{4}-[0-9]{2}$/;
+const DAY_KEY = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
+
+function backupFolder(): (Directory & { exists: boolean; list: () => { name?: string }[] }) | null {
+  if (!Paths.document) return null;
+  return new Directory(Paths.document, "pencheck-backups") as Directory & {
+    exists: boolean;
+    list: () => { name?: string }[];
+  };
+}
+
+/** Names of backups this app wrote. Newest first. No other files are listed. */
+export function listBackupNames(): string[] {
+  const folder = backupFolder();
+  if (!folder?.exists) return [];
+  const names: string[] = [];
+  for (const item of folder.list()) {
+    const name = typeof item.name === "string" ? item.name : "";
+    if (BACKUP_NAME.test(name)) names.push(name);
+  }
+  names.sort();
+  names.reverse();
+  return names.slice(0, 20);
+}
+
+function dayRoomKey(date: string): string | null {
+  if (!DAY_KEY.test(date)) return null;
+  const key = `day_ok_${date.replace(/-/g, "_")}`;
+  return SETTING_KEY.test(key) ? key : null;
+}
+
+export function listAllowsMore(db: SQLiteDatabase, habitId: string): Promise<boolean> {
+  if (!ROW_ID.test(habitId)) return Promise.resolve(false);
+  return withDbLock(async () => {
+    const row = await db.getFirstAsync<{ list_room: number | null }>(
+      "SELECT list_room FROM habits WHERE id = ?",
+      habitId,
+    );
+    return Number(row?.list_room) === 1;
+  });
+}
+
+export function allowMoreOnList(db: SQLiteDatabase, habitId: string): Promise<void> {
+  if (!ROW_ID.test(habitId)) return Promise.resolve();
+  return withDbLock(() => db.runAsync("UPDATE habits SET list_room = 1 WHERE id = ?", habitId)).then(
+    () => undefined,
+  );
+}
+
+export function dayAllowsMore(db: SQLiteDatabase, date: string): Promise<boolean> {
+  const key = dayRoomKey(date);
+  if (!key) return Promise.resolve(false);
+  return readSetting(db, key).then((value) => value === "1");
+}
+
+export function allowMoreOnDay(db: SQLiteDatabase, date: string): Promise<void> {
+  const key = dayRoomKey(date);
+  if (!key) return Promise.resolve();
+  return writeSetting(db, key, "1");
+}
+
+function asRow(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asInt(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value)) return null;
+  return value;
+}
+
+function asText(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  if (value.length < 1 || value.length > max) return null;
+  if (value.includes("\u0000")) return null;
+  return value;
+}
+
+/** Replaces the log with one backup this app saved. A bad file changes nothing. */
+export function restoreBackup(db: SQLiteDatabase, name: string): Promise<void> {
+  if (!BACKUP_NAME.test(name)) return Promise.reject(new Error("That backup could not be read."));
+  return withDbLock(() => restoreBackupNow(db, name));
+}
+
+async function restoreBackupNow(db: SQLiteDatabase, name: string): Promise<void> {
+  const folder = backupFolder();
+  if (!folder?.exists) throw new Error("That backup could not be read.");
+  const file = new File(folder, name) as File & { exists: boolean; text: () => Promise<string> };
+  if (!file.exists) throw new Error("That backup could not be read.");
+  const raw = await file.text();
+  if (raw.length < 2 || raw.length > 8_000_000) throw new Error("That backup could not be read.");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    throw new Error("That backup could not be read.");
+  }
+  const body = asRow(parsed);
+  if (!body || body.version !== 1) throw new Error("That backup could not be read.");
+  const months = readMonths(body.months);
+  const habits = readHabits(body.habits, new Set(months.map((month) => month.id)));
+  const habitIds = new Set(habits.map((habit) => habit.id));
+  const records = readRecords(body.records, habitIds, new Set(months.map((month) => month.id)));
+  const templates = readTemplates(body.templates);
+  const templateIds = new Set(templates.map((template) => template.id));
+  const templateRows = readTemplateRows(body.templateRows, templateIds);
+  await db.withTransactionAsync(async () => {
+    await db.execAsync("DELETE FROM day_records");
+    await db.execAsync("DELETE FROM template_rows");
+    await db.execAsync("DELETE FROM habits");
+    await db.execAsync("DELETE FROM templates");
+    await db.execAsync("DELETE FROM wrapped_days");
+    await db.execAsync("DELETE FROM months");
+    for (const month of months) {
+      await db.runAsync(
+        "INSERT INTO months (id, year, month, locked, started_on) VALUES (?, ?, ?, ?, ?)",
+        month.id,
+        month.year,
+        month.month,
+        month.locked,
+        month.startedOn,
+      );
+    }
+    for (const habit of habits) {
+      await db.runAsync(
+        `INSERT INTO habits (
+           id, month_id, name, sort_order, entry, blank_counts_as_miss, follow_up_hours,
+           reminder_hour, reminder_minute, tags, carry_forward, pinned
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        habit.id,
+        habit.monthId,
+        habit.name,
+        habit.sortOrder,
+        habit.entry,
+        habit.blank,
+        habit.follow,
+        habit.reminderHour,
+        habit.reminderMinute,
+        habit.tags,
+        habit.carry,
+        habit.pinned,
+      );
+    }
+    for (const record of records) {
+      await db.runAsync(
+        `INSERT INTO day_records (
+           habit_id, date, display, source, clock_hour, clock_minute, span_start, span_end,
+           note, photo_path, diary_mark, checklist, voice_path
+         ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?)`,
+        record.habitId,
+        record.date,
+        record.display,
+        record.source,
+        record.hour,
+        record.minute,
+        record.note,
+        record.photo,
+        record.diary,
+        record.checklist,
+        record.voice,
+      );
+    }
+    for (const template of templates) {
+      await db.runAsync("INSERT INTO templates (id, name) VALUES (?, ?)", template.id, template.name);
+    }
+    for (const row of templateRows) {
+      await db.runAsync(
+        `INSERT INTO template_rows (
+           id, template_id, name, sort_order, entry, blank_counts_as_miss, tags
+         ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.templateId,
+        row.name,
+        row.sortOrder,
+        row.entry,
+        row.blank,
+        row.tags,
+      );
+    }
+  });
+}
+
+function readMonths(value: unknown): { id: string; year: number; month: number; locked: number; startedOn: string | null }[] {
+  if (!Array.isArray(value) || value.length > 120) throw new Error("That backup could not be read.");
+  const seen = new Set<string>();
+  return value.map((item) => {
+    const row = asRow(item);
+    const id = row ? asText(row.id, 7) : null;
+    const year = row ? asInt(row.year) : null;
+    const month = row ? asInt(row.month) : null;
+    const locked = row ? asInt(row.locked) : null;
+    if (!row || !id || !MONTH_KEY.test(id) || year == null || month == null || locked == null) {
+      throw new Error("That backup could not be read.");
+    }
+    if (year < 2000 || year > 9999 || month < 1 || month > 12 || (locked !== 0 && locked !== 1)) {
+      throw new Error("That backup could not be read.");
+    }
+    if (id !== `${year}-${String(month).padStart(2, "0")}` || seen.has(id)) {
+      throw new Error("That backup could not be read.");
+    }
+    seen.add(id);
+    const started = row.started_on == null ? null : asText(row.started_on, 10);
+    if (row.started_on != null && (started == null || !DAY_KEY.test(started))) {
+      throw new Error("That backup could not be read.");
+    }
+    return { id, year, month, locked, startedOn: started };
+  });
+}
+
+function readHabits(value: unknown, months: Set<string>): {
+  id: string;
+  monthId: string;
+  name: string;
+  sortOrder: number;
+  entry: string;
+  blank: number;
+  follow: number | null;
+  reminderHour: number | null;
+  reminderMinute: number | null;
+  tags: string;
+  carry: number;
+  pinned: number;
+}[] {
+  if (!Array.isArray(value) || value.length > 4000) throw new Error("That backup could not be read.");
+  const seen = new Set<string>();
+  return value.map((item) => {
+    const row = asRow(item);
+    const id = row ? asText(row.id, 80) : null;
+    const monthId = row ? asText(row.month_id, 7) : null;
+    const name = row ? asText(row.name, 40) : null;
+    const sortOrder = row ? asInt(row.sort_order) : null;
+    const entry = row ? asText(row.entry, 12) : null;
+    const blank = row ? asInt(row.blank_counts_as_miss) : null;
+    if (!row || !id || !ROW_ID.test(id) || !monthId || !months.has(monthId) || !name || sortOrder == null) {
+      throw new Error("That backup could not be read.");
+    }
+    if (!entry || !["tick", "timer", "journal", "checklist"].includes(entry) || seen.has(id)) {
+      throw new Error("That backup could not be read.");
+    }
+    if (sortOrder < 0 || sortOrder > 9999 || (blank !== 0 && blank !== 1)) {
+      throw new Error("That backup could not be read.");
+    }
+    seen.add(id);
+    const follow = row.follow_up_hours == null ? null : asInt(row.follow_up_hours);
+    if (row.follow_up_hours != null && (follow == null || follow < 1 || follow > 48)) {
+      throw new Error("That backup could not be read.");
+    }
+    const reminderHour = row.reminder_hour == null ? null : asInt(row.reminder_hour);
+    const reminderMinute = row.reminder_minute == null ? null : asInt(row.reminder_minute);
+    const reminderOk =
+      (reminderHour == null && reminderMinute == null) ||
+      (reminderHour != null &&
+        reminderMinute != null &&
+        reminderHour >= 0 &&
+        reminderHour <= 23 &&
+        reminderMinute >= 0 &&
+        reminderMinute <= 59);
+    if (!reminderOk) throw new Error("That backup could not be read.");
+    const tags = safeTags(row.tags);
+    const carry = row.carry_forward == null ? 1 : asInt(row.carry_forward);
+    const pinned = row.pinned == null ? 0 : asInt(row.pinned);
+    if ((carry !== 0 && carry !== 1) || (pinned !== 0 && pinned !== 1)) {
+      throw new Error("That backup could not be read.");
+    }
+    return {
+      id,
+      monthId,
+      name,
+      sortOrder,
+      entry,
+      blank,
+      follow,
+      reminderHour,
+      reminderMinute,
+      tags,
+      carry,
+      pinned,
+    };
+  });
+}
+
+function safeTags(value: unknown): string {
+  if (typeof value !== "string" || value.length > 200) return "[]";
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return "[]";
+    const tags = parsed.filter((tag): tag is string => typeof tag === "string" && tag.length > 0 && tag.length <= 24);
+    return JSON.stringify(tags.slice(0, 3));
+  } catch {
+    return "[]";
+  }
+}
+
+function safePath(value: unknown): string | null {
+  if (value == null) return null;
+  const text = asText(value, 300);
+  if (!text || text.startsWith("data:") || text.includes("..")) return null;
+  return text;
+}
+
+function readRecords(value: unknown, habits: Set<string>, months: Set<string>): {
+  habitId: string;
+  date: string;
+  display: string;
+  source: string;
+  hour: number | null;
+  minute: number | null;
+  note: string | null;
+  photo: string | null;
+  diary: number;
+  checklist: string | null;
+  voice: string | null;
+}[] {
+  if (!Array.isArray(value) || value.length > 80000) throw new Error("That backup could not be read.");
+  const seen = new Set<string>();
+  return value.map((item) => {
+    const row = asRow(item);
+    const habitId = row ? asText(row.habit_id, 80) : null;
+    const date = row ? asText(row.date, 10) : null;
+    const display = row ? asText(row.display, 16) : null;
+    const source = row ? asText(row.source, 8) : null;
+    if (!row || !habitId || !habits.has(habitId) || !date || !DAY_KEY.test(date) || !months.has(date.slice(0, 7))) {
+      throw new Error("That backup could not be read.");
+    }
+    if (!display || (source !== "manual" && source !== "alarm")) throw new Error("That backup could not be read.");
+    const key = `${habitId}|${date}`;
+    if (seen.has(key)) throw new Error("That backup could not be read.");
+    seen.add(key);
+    const hour = row.clock_hour == null ? null : asInt(row.clock_hour);
+    const minute = row.clock_minute == null ? null : asInt(row.clock_minute);
+    const clockOk =
+      (hour == null && minute == null) ||
+      (hour != null && minute != null && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59);
+    if (!clockOk) throw new Error("That backup could not be read.");
+    const note = row.note == null ? null : asText(row.note, 2000);
+    if (row.note != null && note == null) throw new Error("That backup could not be read.");
+    const diary = row.diary_mark == null ? 0 : asInt(row.diary_mark);
+    if (diary !== 0 && diary !== 1) throw new Error("That backup could not be read.");
+    const checklist = row.checklist == null ? null : asText(row.checklist, 8000);
+    if (row.checklist != null && checklist == null) throw new Error("That backup could not be read.");
+    return {
+      habitId,
+      date,
+      display,
+      source,
+      hour,
+      minute,
+      note,
+      photo: safePath(row.photo_path),
+      diary,
+      checklist,
+      voice: safePath(row.voice_path),
+    };
+  });
+}
+
+function readTemplates(value: unknown): { id: string; name: string }[] {
+  if (!Array.isArray(value) || value.length > 100) throw new Error("That backup could not be read.");
+  const seen = new Set<string>();
+  return value.map((item) => {
+    const row = asRow(item);
+    const id = row ? asText(row.id, 80) : null;
+    const name = row ? asText(row.name, 40) : null;
+    if (!row || !id || !ROW_ID.test(id) || !name || seen.has(id)) throw new Error("That backup could not be read.");
+    seen.add(id);
+    return { id, name };
+  });
+}
+
+function readTemplateRows(value: unknown, templates: Set<string>): {
+  id: string;
+  templateId: string;
+  name: string;
+  sortOrder: number;
+  entry: string;
+  blank: number;
+  tags: string;
+}[] {
+  if (!Array.isArray(value) || value.length > 2000) throw new Error("That backup could not be read.");
+  return value.map((item, index) => {
+    const row = asRow(item);
+    const templateId = row ? asText(row.template_id, 80) : null;
+    const name = row ? asText(row.name, 40) : null;
+    const sortOrder = row ? asInt(row.sort_order) : null;
+    const entry = row ? asText(row.entry, 12) : null;
+    const blank = row ? asInt(row.blank_counts_as_miss) : null;
+    if (!row || !templateId || !templates.has(templateId) || !ROW_ID.test(templateId) || !name || sortOrder == null) {
+      throw new Error("That backup could not be read.");
+    }
+    if (!entry || !["tick", "timer", "journal", "checklist"].includes(entry)) {
+      throw new Error("That backup could not be read.");
+    }
+    if (sortOrder < 0 || sortOrder > 9999 || (blank !== 0 && blank !== 1)) {
+      throw new Error("That backup could not be read.");
+    }
+    const id = `restore-row-${index}`;
+    return { id, templateId, name, sortOrder, entry, blank, tags: safeTags(row.tags) };
+  });
 }
 
 async function assertUnlocked(db: SQLiteDatabase, monthId: string): Promise<void> {

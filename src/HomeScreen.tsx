@@ -108,6 +108,8 @@ export function HomeScreen({
   const score = board ? scoreStoredMonth(board.current) : null;
   const open = board ? openTodayHabits(board.current) : [];
   const habitCount = board?.current.habits.length ?? 0;
+  const past = board ? board.past.filter((month) => month.id !== board.sampleMonthId) : [];
+  const sampleMonths = board ? board.past.filter((month) => month.id === board.sampleMonthId) : [];
 
   return (
     <ScrollView
@@ -207,10 +209,10 @@ export function HomeScreen({
       >
         <Text style={ui.buttonText}>Add habit</Text>
       </Pressable>
-      {board && board.past.length ? (
+      {past.length ? (
         <View style={ui.stack} testID="past-months">
           <Text style={ui.section}>Past months</Text>
-          {board.past.map((month) => (
+          {past.map((month) => (
             <Pressable
               key={month.id}
               style={ui.button}
@@ -221,10 +223,26 @@ export function HomeScreen({
                 onOpenMonth(month.id);
               }}
             >
-              <Text style={ui.buttonText}>
-                {monthTitle(month.year, month.month)}
-                {board.sampleMonthId === month.id ? " · Sample" : ""}
-              </Text>
+              <Text style={ui.buttonText}>{monthTitle(month.year, month.month)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {sampleMonths.length ? (
+        <View style={ui.stack} testID="sample-months">
+          <Text style={ui.section}>Sample</Text>
+          {sampleMonths.map((month) => (
+            <Pressable
+              key={month.id}
+              style={ui.button}
+              accessibilityLabel={`${monthTitle(month.year, month.month)} sample`}
+              testID={`past-${month.id}`}
+              onPress={() => {
+                onGesture();
+                onOpenMonth(month.id);
+              }}
+            >
+              <Text style={ui.buttonText}>{monthTitle(month.year, month.month)}</Text>
             </Pressable>
           ))}
         </View>

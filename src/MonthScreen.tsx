@@ -44,6 +44,12 @@ import {
   readSetting,
   reorderHabits,
   saveBackup,
+  restoreBackup,
+  listBackupNames,
+  listAllowsMore,
+  allowMoreOnList,
+  dayAllowsMore,
+  allowMoreOnDay,
   setPinned,
   undoLastMark,
   writeSetting,
@@ -139,6 +145,8 @@ export function MonthScreen({
   const [eveningOpen, setEveningOpen] = useState(false);
   const [undoReady, setUndoReady] = useState(false);
   const [sample, setSample] = useState(false);
+  const [more, setMore] = useState(false);
+  const [restoreArmed, setRestoreArmed] = useState(false);
   const checklistRef = useRef(checklistEdit);
   checklistRef.current = checklistEdit;
 
@@ -277,6 +285,7 @@ export function MonthScreen({
         <ChecklistDialog
           habit={checklistEdit.habit}
           day={checklistEdit.day}
+          date={dateFor(month.year, month.month, checklistEdit.day)}
           items={
             records.get(
               `${checklistEdit.habit.id}|${dateFor(month.year, month.month, checklistEdit.day)}`,
@@ -311,16 +320,6 @@ export function MonthScreen({
   return (
     <View style={styles.screen} testID="month-grid">
       <View style={styles.controls}>
-        <TextInput
-          testID="habit-search"
-          accessibilityLabel="Search habits"
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Search habits"
-          placeholderTextColor="#8A7A9E"
-          autoCorrect={false}
-          style={styles.search}
-        />
         <View style={styles.actions}>
           {review && readOnly ? (
             <Pressable
@@ -409,54 +408,113 @@ export function MonthScreen({
               <Text style={styles.buttonText}>Undo</Text>
             </Pressable>
           ) : null}
-          {review ? null : (
-            <Pressable
-              style={styles.button}
-              accessibilityLabel="Evening reminder"
-              testID="evening-reminder"
-              onPress={() => setEveningOpen(true)}
-            >
-              <Text style={styles.buttonText}>
-                {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
-              </Text>
-            </Pressable>
-          )}
           <Pressable
             style={styles.button}
-            accessibilityLabel="Save backup"
-            testID="save-backup"
+            accessibilityLabel={more ? "Less" : "More"}
+            testID="more-controls"
             onPress={() => {
-              void enqueue(async (database) => {
-                await saveBackup(database);
-                setBanner("Saved on this phone.");
-              }).catch(() => undefined);
+              setMore((open) => !open);
+              setRestoreArmed(false);
             }}
           >
-            <Text style={styles.buttonText}>Save backup</Text>
+            <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
           </Pressable>
         </View>
-        {tagChoices.length ? (
-          <View style={styles.actions}>
-            <Pressable
-              accessibilityLabel="All habits"
-              testID="tag-filter-all"
-              style={[styles.button, tagFilter == null && styles.buttonOn]}
-              onPress={() => setTagFilter(null)}
-            >
-              <Text style={styles.buttonText}>All</Text>
-            </Pressable>
-            {tagChoices.map((tag) => (
+        {more || query.length > 0 || tagFilter != null ? (
+          <>
+            <TextInput
+              testID="habit-search"
+              accessibilityLabel="Search habits"
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search habits"
+              placeholderTextColor="#8A7A9E"
+              autoCorrect={false}
+              style={styles.search}
+            />
+            {tagChoices.length ? (
+              <View style={styles.actions}>
+                <Pressable
+                  accessibilityLabel="All habits"
+                  testID="tag-filter-all"
+                  style={[styles.button, tagFilter == null && styles.buttonOn]}
+                  onPress={() => setTagFilter(null)}
+                >
+                  <Text style={styles.buttonText}>All</Text>
+                </Pressable>
+                {tagChoices.map((tag) => (
+                  <Pressable
+                    key={tag}
+                    accessibilityLabel={`Filter ${tag}`}
+                    testID={`tag-filter-${testSlug(tag)}`}
+                    style={[styles.button, tagFilter === tag && styles.buttonOn]}
+                    onPress={() => setTagFilter(tag)}
+                  >
+                    <Text style={styles.buttonText}>{tag}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {review ? null : (
               <Pressable
-                key={tag}
-                accessibilityLabel={`Filter ${tag}`}
-                testID={`tag-filter-${testSlug(tag)}`}
-                style={[styles.button, tagFilter === tag && styles.buttonOn]}
-                onPress={() => setTagFilter(tag)}
+                style={styles.button}
+                accessibilityLabel="Evening reminder"
+                testID="evening-reminder"
+                onPress={() => setEveningOpen(true)}
               >
-                <Text style={styles.buttonText}>{tag}</Text>
+                <Text style={styles.buttonText}>
+                  {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
+                </Text>
               </Pressable>
-            ))}
-          </View>
+            )}
+            <View style={styles.actions}>
+              <Pressable
+                style={styles.button}
+                accessibilityLabel="Save backup"
+                testID="save-backup"
+                onPress={() => {
+                  void enqueue(async (database) => {
+                    const name = await saveBackup(database);
+                    setBanner(`Saved ${name} on this phone.`);
+                    setRestoreArmed(false);
+                  }).catch(() => undefined);
+                }}
+              >
+                <Text style={styles.buttonText}>Save backup</Text>
+              </Pressable>
+              {restoreArmed ? (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Confirm restore"
+                  testID="confirm-restore"
+                  onPress={() => {
+                    const name = listBackupNames()[0];
+                    if (!name) {
+                      setBanner("No backup is saved on this phone.");
+                      setRestoreArmed(false);
+                      return;
+                    }
+                    void enqueue(async (database) => {
+                      await restoreBackup(database, name);
+                      setBanner("Restored on this phone.");
+                      setRestoreArmed(false);
+                    }).catch(() => undefined);
+                  }}
+                >
+                  <Text style={styles.buttonText}>Confirm restore</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Restore latest"
+                  testID="restore-backup"
+                  onPress={() => setRestoreArmed(true)}
+                >
+                  <Text style={styles.buttonText}>Restore latest</Text>
+                </Pressable>
+              )}
+            </View>
+          </>
         ) : null}
         {banner ? <Text style={styles.banner}>{banner}</Text> : null}
       </View>
@@ -654,6 +712,11 @@ export function MonthScreen({
                   editingHabit.id,
                 )
               : 0
+          }
+          todayDate={
+            editingHabit.entry === "checklist" && todayDay != null
+              ? dateFor(month.year, month.month, todayDay)
+              : null
           }
           onSave={async (name, subtasks) => {
             const changed = await enqueue(async (database) => {
@@ -1224,6 +1287,7 @@ function RenameDialog({
   onRemind,
   onPin,
   onMove,
+  todayDate,
 }: {
   habit: Habit;
   isFirst: boolean;
@@ -1232,6 +1296,7 @@ function RenameDialog({
   onSave: (name: string, subtasks: CheckItem[] | null) => Promise<void>;
   subtasks: CheckItem[] | null;
   othersOnDay: number;
+  todayDate: string | null;
   onRemove: () => Promise<void>;
   onToggleMiss: (value: boolean) => void;
   onCarry: (value: boolean) => void;
@@ -1274,6 +1339,26 @@ function RenameDialog({
       live = false;
     };
   }, [habit.entry, habit.id, habit.reminderHour, habit.reminderMinute]);
+
+  useEffect(() => {
+    if (!subtasks) return;
+    let live = true;
+    void openAppDatabase()
+      .then(async (database) => {
+        const list = await listAllowsMore(database, habit.id);
+        const day = todayDate ? await dayAllowsMore(database, todayDate) : false;
+        return { list, day };
+      })
+      .then((room) => {
+        if (!live) return;
+        if (room.list) setAcceptedOver3(true);
+        if (room.day) setAcceptedOver12(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [habit.id, subtasks, todayDate]);
 
   function addSubtask() {
     if (lines.length >= CHECKLIST_MAX) {
@@ -1322,6 +1407,11 @@ function RenameDialog({
                 onPress={() => {
                   setAcceptedOver12(true);
                   setDayAsk(false);
+                  if (todayDate) {
+                    void openAppDatabase()
+                      .then((database) => allowMoreOnDay(database, todayDate))
+                      .catch(() => undefined);
+                  }
                   void onSave(name, lines).catch((error: unknown) => setMessage(errorText(error)));
                 }}
               >
@@ -1339,6 +1429,9 @@ function RenameDialog({
                 onPress={() => {
                   setAcceptedOver3(true);
                   setSubtaskAsk(false);
+                  void openAppDatabase()
+                    .then((database) => allowMoreOnList(database, habit.id))
+                    .catch(() => undefined);
                   setLines((current) =>
                     current.length >= CHECKLIST_MAX ? current : [...current, { text: "", done: false }],
                   );
@@ -1651,6 +1744,24 @@ function TimeDialog({
       />
       <View style={styles.actions}>
         <Pressable
+          testID="time-now"
+          accessibilityLabel="Now"
+          style={[styles.button, styles.buttonOn]}
+          onPress={() => {
+            const now = new Date();
+            const view = to12Hour(now.getHours());
+            const minute = now.getMinutes();
+            const next = to24Hour(view.hour12, minute, view.period);
+            if (!next) return;
+            setPeriod(view.period);
+            setDigits(`${view.hour12}${String(minute).padStart(2, "0")}`);
+            setClock({ hour12: view.hour12, minute });
+            void onSave(next.hour, next.minute).catch((error: unknown) => setMessage(errorText(error)));
+          }}
+        >
+          <Text style={[styles.buttonText, styles.buttonOnText]}>Now</Text>
+        </Pressable>
+        <Pressable
           testID="period-am"
           accessibilityLabel="AM"
           style={[styles.button, period === "AM" && styles.buttonOn]}
@@ -1854,6 +1965,7 @@ function otherChecklistItems(
 function ChecklistDialog({
   habit,
   day,
+  date,
   items,
   othersOnDay,
   onClose,
@@ -1861,6 +1973,7 @@ function ChecklistDialog({
 }: {
   habit: Habit;
   day: number;
+  date: string;
   items: CheckItem[];
   othersOnDay: number;
   onClose: () => void;
@@ -1873,6 +1986,25 @@ function ChecklistDialog({
   const [message, setMessage] = useState<string | null>(null);
   const filled = normalizeChecklist(lines).length;
   const dayTotal = dayTaskTotal(othersOnDay, lines);
+
+  useEffect(() => {
+    let live = true;
+    void openAppDatabase()
+      .then(async (database) => {
+        const list = await listAllowsMore(database, habit.id);
+        const room = await dayAllowsMore(database, date);
+        return { list, room };
+      })
+      .then((known) => {
+        if (!live) return;
+        if (known.list) setAcceptedOver3(true);
+        if (known.room) setAcceptedOver12(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [habit.id, date]);
 
   function setLine(index: number, patch: Partial<CheckItem>) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -1896,6 +2028,9 @@ function ChecklistDialog({
   function confirmOver3() {
     setAcceptedOver3(true);
     setAsk(null);
+    void openAppDatabase()
+      .then((database) => allowMoreOnList(database, habit.id))
+      .catch(() => undefined);
     setLines((current) => (current.length >= CHECKLIST_MAX ? current : [...current, { text: "", done: false }]));
   }
 
@@ -1911,6 +2046,9 @@ function ChecklistDialog({
   function confirmOver12() {
     setAcceptedOver12(true);
     setAsk(null);
+    void openAppDatabase()
+      .then((database) => allowMoreOnDay(database, date))
+      .catch(() => undefined);
     void onSave(lines).catch((error: unknown) => setMessage(errorText(error)));
   }
 
