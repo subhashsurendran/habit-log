@@ -31,7 +31,7 @@ On a phone, a release install contains the JavaScript, so MyDTC opens with Metro
 Task names stay on the left. The days across the top match that month, so February stops at 28, or 29 in a leap year. Each column shows the weekday as M, T, W, Th, F, S, or Su. Saturday and Sunday are shaded.
 
 - Add habit offers Tick, Timer, Journal, or Checklist. Wake up is a timer. Meditation and Reading stay ticks. Medicine and Supplement add a starting tag (tablets or fitness) and do not change the habit name.
-- A tick cycles blank, tick, cross. Hold the cell for a short note. A timer shows a clock such as 6:30 AM, and you can switch AM and PM. It never shows a tick.
+- A tick cycles blank, tick, cross. Hold the cell for a short note. A timer shows a clock such as 6:30 AM, and you can switch AM and PM. Type 507 for 5:07. The colon is added. It never shows a tick.
 - A journal cell opens a page for a note, one photo, a voice note, or "Wrote it in my diary". The photo and the voice note are files on the device. A data URL is not stored. If that file cannot be saved, it is refused and the note can still be saved.
 - A checklist row is the main task. Tap that row name, then Add a subtask. The same control is on the day cell. Subtasks stay on today. The cell shows how many are done, such as 2/3. It is not a tick. An empty checklist becomes a cross only when the day is wrapped and the miss flag is on.
 - Adding a fourth task asks if you can complete all of them today. A day with more than 12 checklist tasks asks if you can finish that many in a day. You choose. One list stops at 24 tasks.

@@ -1546,6 +1546,35 @@ function RenameDialog({
   );
 }
 
+function initialDigits(hour: number | null, minute: number | null): string {
+  if (hour == null || minute == null) return "";
+  const view = to12Hour(hour);
+  return `${view.hour12}${String(minute).padStart(2, "0")}`;
+}
+
+function formatTypedClock(digits: string): string {
+  if (digits.length <= 2) return digits;
+  if (digits.length === 3) return `${digits.slice(0, 1)}:${digits.slice(1)}`;
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+/** Three digits are hour and minute, and the chosen AM or PM stays. Four digits from 13 onward set the half of the day. */
+function clockFromDigits(
+  digits: string,
+  period: ClockPeriod,
+): { hour12: number; minute: number; period: ClockPeriod } | null {
+  if (digits.length < 3) return null;
+  const parsed = parseTimeInput(digits);
+  if (!parsed) return null;
+  if (digits.length === 4 && (parsed.hour === 0 || parsed.hour > 12)) {
+    const view = to12Hour(parsed.hour);
+    return { hour12: view.hour12, minute: parsed.minute, period: view.period };
+  }
+  const hour12 = parsed.hour === 0 ? 12 : parsed.hour;
+  if (hour12 < 1 || hour12 > 12) return null;
+  return { hour12, minute: parsed.minute, period };
+}
+
 function TimeDialog({
   title,
   hour,
@@ -1562,9 +1591,7 @@ function TimeDialog({
   onClear: () => Promise<void>;
 }) {
   const initial = hour == null ? null : to12Hour(hour);
-  const [digits, setDigits] = useState(
-    initial ? `${initial.hour12}:${String(minute ?? 0).padStart(2, "0")}` : "",
-  );
+  const [digits, setDigits] = useState(initialDigits(hour, minute));
   const [period, setPeriod] = useState<ClockPeriod>(initial?.period ?? "AM");
   const [clock, setClock] = useState<{ hour12: number; minute: number } | null>(
     initial ? { hour12: initial.hour12, minute: minute ?? 0 } : null,
@@ -1573,35 +1600,31 @@ function TimeDialog({
   const full = clock ? to24Hour(clock.hour12, clock.minute, period) : null;
 
   function onDigits(text: string) {
-    setDigits(text);
+    const next = text.replace(/\D/g, "").slice(0, 4);
+    setDigits(next);
     setMessage(null);
-    const parsed = parseTimeInput(text);
-    if (!parsed) {
+    const applied = clockFromDigits(next, period);
+    if (!applied) {
       setClock(null);
       return;
     }
-    const compact = text.trim();
-    const explicit = compact.includes(":") || /^\d{4}$/.test(compact);
-    if (explicit) {
-      const view = to12Hour(parsed.hour);
-      setClock({ hour12: view.hour12, minute: parsed.minute });
-      setPeriod(view.period);
-      return;
-    }
-    setClock({ hour12: parsed.hour === 0 ? 12 : parsed.hour, minute: parsed.minute });
-    setPeriod("AM");
+    setClock({ hour12: applied.hour12, minute: applied.minute });
+    if (applied.period !== period) setPeriod(applied.period);
   }
 
   return (
     <Dialog title={title} onClose={onClose}>
       <Text style={styles.clock} testID="clock-preview">
-        {full ? formatClock12(full.hour, full.minute) : "Type 630"}
+        {full ? formatClock12(full.hour, full.minute) : digits ? formatTypedClock(digits) : "5:07"}
       </Text>
       <TextInput
         testID="time-input"
-        value={digits}
+        accessibilityLabel="Time"
+        value={formatTypedClock(digits)}
         onChangeText={onDigits}
-        placeholder="630"
+        placeholder="507"
+        keyboardType="number-pad"
+        inputMode="numeric"
         maxLength={5}
         autoCorrect={false}
         style={styles.input}
@@ -1609,6 +1632,7 @@ function TimeDialog({
       <View style={styles.actions}>
         <Pressable
           testID="period-am"
+          accessibilityLabel="AM"
           style={[styles.button, period === "AM" && styles.buttonOn]}
           onPress={() => setPeriod("AM")}
         >
@@ -1616,13 +1640,14 @@ function TimeDialog({
         </Pressable>
         <Pressable
           testID="period-pm"
+          accessibilityLabel="PM"
           style={[styles.button, period === "PM" && styles.buttonOn]}
           onPress={() => setPeriod("PM")}
         >
           <Text style={[styles.buttonText, period === "PM" && styles.buttonOnText]}>PM</Text>
         </Pressable>
       </View>
-      <Text style={styles.quiet}>630 is 6:30 AM.</Text>
+      <Text style={styles.quiet}>Type 507 for 5:07. The colon is added.</Text>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
       <View style={styles.actions}>
         <Pressable
@@ -1630,7 +1655,7 @@ function TimeDialog({
           testID="time-save"
           onPress={() => {
             if (!full) {
-              setMessage("Use 630 for 6:30 AM.");
+              setMessage("Use 507 for 5:07.");
               return;
             }
             void onSave(full.hour, full.minute).catch((error: unknown) =>
