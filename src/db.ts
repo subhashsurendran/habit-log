@@ -430,6 +430,8 @@ export type DashboardState = {
   upcoming: StoredMonth[];
   templates: HabitTemplate[];
   sampleMonthId: string | null;
+  /** Template last used for the month the Templates tab would fill. Null when none has been used. */
+  preparedTemplateId: string | null;
 };
 
 export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<DashboardState> {
@@ -458,19 +460,23 @@ export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<Das
       list.push({ name: row.name, entry: asEntry(row.entry) });
       habitsByTemplate.set(row.template_id, list);
     }
+    const listed = templates.map((template) => ({
+      id: template.id,
+      name: template.name,
+      habits: habitsByTemplate.get(template.id) ?? [],
+    }));
+    const preparedMonth = current.records.length > 0 ? nextMonth(now) : currentMonth(now);
+    const preparedTemplateId = await preparedTemplate(db, preparedMonth.id, listed);
     return {
       current,
       past: months.filter((month) => month.id < current.id),
       upcoming: months.filter((month) => month.id > current.id),
-      templates: templates.map((template) => ({
-        id: template.id,
-        name: template.name,
-        habits: habitsByTemplate.get(template.id) ?? [],
-      })),
+      templates: listed,
       sampleMonthId:
         (
           await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = ?", SAMPLE_MONTH_KEY)
         )?.value ?? null,
+      preparedTemplateId,
     };
   });
 }
@@ -643,7 +649,7 @@ export function startMonthFromTemplate(
   db: SQLiteDatabase,
   templateId: string,
   now = new Date(),
-): Promise<string> {
+): Promise<{ title: string; already: boolean }> {
   return withDbLock(() => startMonthFromTemplateNow(db, templateId, now));
 }
 
@@ -689,7 +695,7 @@ async function startMonthFromTemplateNow(
   db: SQLiteDatabase,
   templateId: string,
   now: Date,
-): Promise<string> {
+): Promise<{ title: string; already: boolean }> {
   if (!/^[A-Za-z0-9-]{8,80}$/.test(templateId)) {
     throw new Error("That list is not stored.");
   }
@@ -704,7 +710,16 @@ async function startMonthFromTemplateNow(
   );
   const target = Number(currentMarks?.n ?? 0) > 0 ? nextMonth(now) : current;
   const title = monthTitle(target.year, target.month);
+  const key = preparedKey(target.id);
+  const saved = key
+    ? await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = ?", key)
+    : null;
+  if (saved?.value === templateId) return { title, already: true };
   const existing = await db.getFirstAsync<{ id: string }>("SELECT id FROM months WHERE id = ?", target.id);
+  if (!saved?.value && existing && (await sameHabitsAsTemplate(db, target.id, templateId))) {
+    if (key) await rememberPrepared(db, key, templateId);
+    return { title, already: true };
+  }
   const marks = await db.getFirstAsync<{ n: number }>(
     `SELECT COUNT(*) AS n FROM day_records r
      JOIN habits h ON h.id = r.habit_id
@@ -755,8 +770,66 @@ async function startMonthFromTemplateNow(
         JSON.stringify(parseStoredTags(row.tags)),
       );
     }
+    if (key) await rememberPrepared(db, key, templateId);
   });
-  return title;
+  return { title, already: false };
+}
+
+function preparedKey(monthId: string): string | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(monthId);
+  if (!match) return null;
+  const key = `tpl_${match[1]}_${match[2]}`;
+  return SETTING_KEY.test(key) ? key : null;
+}
+
+async function rememberPrepared(db: SQLiteDatabase, key: string, templateId: string): Promise<void> {
+  if (templateId.length > 80) return;
+  await db.runAsync(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    key,
+    templateId,
+  );
+}
+
+async function preparedTemplate(
+  db: SQLiteDatabase,
+  monthId: string,
+  templates: readonly HabitTemplate[],
+): Promise<string | null> {
+  const key = preparedKey(monthId);
+  const saved = key
+    ? await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = ?", key)
+    : null;
+  if (saved?.value && templates.some((template) => template.id === saved.value)) return saved.value;
+  const habits = await db.getAllAsync<{ name: string; entry: string }>(
+    "SELECT name, entry FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC",
+    monthId,
+  );
+  if (!habits.length) return null;
+  for (const template of templates) {
+    if (
+      template.habits.length === habits.length &&
+      template.habits.every(
+        (habit, index) => habit.name === habits[index]?.name && habit.entry === asEntry(habits[index]?.entry ?? ""),
+      )
+    ) {
+      return template.id;
+    }
+  }
+  return null;
+}
+
+async function sameHabitsAsTemplate(db: SQLiteDatabase, monthId: string, templateId: string): Promise<boolean> {
+  const habits = await db.getAllAsync<{ name: string; entry: string }>(
+    "SELECT name, entry FROM habits WHERE month_id = ? ORDER BY sort_order ASC, id ASC",
+    monthId,
+  );
+  const rows = await db.getAllAsync<{ name: string; entry: string }>(
+    "SELECT name, entry FROM template_rows WHERE template_id = ? ORDER BY sort_order ASC, id ASC",
+    templateId,
+  );
+  if (!habits.length || habits.length !== rows.length) return false;
+  return rows.every((row, index) => row.name === habits[index]?.name && asEntry(row.entry) === asEntry(habits[index]?.entry ?? ""));
 }
 
 function templateName(raw: string): string {

@@ -106,9 +106,11 @@ export function TemplatesScreen({
       .then(({ next, ready }) => {
         setBoard(next);
         setBanner(
-          ready === title && marked
-            ? `${ready} is ready. This month is unchanged.`
-            : `${ready} is ready.`,
+          ready.already
+            ? `${ready.title} is already set.`
+            : ready.title === title && marked
+              ? `${ready.title} is ready. This month is unchanged.`
+              : `${ready.title} is ready.`,
         );
       })
       .catch((error: unknown) => setBanner(errorText(error)));
@@ -217,23 +219,26 @@ export function TemplatesScreen({
       )}
       {!fatal && !board ? <Text style={ui.body}>Opening…</Text> : null}
       {board && board.templates.length === 0 ? <Text style={ui.quiet}>No templates yet.</Text> : null}
-      {board?.templates.map((template) => (
-        <Pressable
-          key={template.id}
-          style={ui.card}
-          accessibilityLabel={`Use for ${targetTitle}`}
-          testID={`template-start-${template.id}`}
-          onPress={() => start(template.id)}
-        >
-          <Text style={ui.body}>{template.name}</Text>
-          {template.habits.map((habit, index) => (
-            <Text key={`${habit.name}-${index}`} style={ui.quiet}>
-              {habit.name} · {kindLabel(habit.entry)}
-            </Text>
-          ))}
-          <Text style={ui.quiet}>Use for {targetTitle}</Text>
-        </Pressable>
-      ))}
+      {board?.templates.map((template) => {
+        const setForMonth = board.preparedTemplateId === template.id;
+        return (
+          <Pressable
+            key={template.id}
+            style={[ui.card, setForMonth && { borderColor: "#3DDC97" }]}
+            accessibilityLabel={setForMonth ? `Set for ${targetTitle}` : `Use for ${targetTitle}`}
+            testID={`template-start-${template.id}`}
+            onPress={() => start(template.id)}
+          >
+            <Text style={ui.body}>{template.name}</Text>
+            {template.habits.map((habit, index) => (
+              <Text key={`${habit.name}-${index}`} style={ui.quiet}>
+                {habit.name} · {kindLabel(habit.entry)}
+              </Text>
+            ))}
+            <Text style={ui.quiet}>{setForMonth ? `Set for ${targetTitle}` : `Use for ${targetTitle}`}</Text>
+          </Pressable>
+        );
+      })}
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>
   );
