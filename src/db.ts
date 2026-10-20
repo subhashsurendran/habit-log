@@ -409,7 +409,7 @@ export type StoredMonth = { id: string; year: number; month: number };
 export type HabitTemplate = {
   id: string;
   name: string;
-  habits: { name: string; entry: Entry }[];
+  habits: { name: string; entry: Entry; tags: string[] }[];
 };
 export type TemplateDraft = {
   name: string;
@@ -423,6 +423,7 @@ export const EVENING_MINUTE_KEY = "evening_minute";
 export const SAMPLE_MONTH_KEY = "sample_month";
 const SETTING_KEY = /^[a-z0-9_]{1,32}$/;
 const TEMPLATE_ROW_MAX = 40;
+export const TEMPLATE_LIMIT = 3;
 export type DashboardState = {
   current: MonthState;
   past: StoredMonth[];
@@ -448,15 +449,16 @@ export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<Das
       template_id: string;
       name: string;
       entry: string;
+      tags: string | null;
     }>(
-      `SELECT template_id, name, entry
+      `SELECT template_id, name, entry, tags
        FROM template_rows
        ORDER BY sort_order ASC, id ASC`,
     );
-    const habitsByTemplate = new Map<string, { name: string; entry: Entry }[]>();
+    const habitsByTemplate = new Map<string, { name: string; entry: Entry; tags: string[] }[]>();
     for (const row of templateRows) {
       const list = habitsByTemplate.get(row.template_id) ?? [];
-      list.push({ name: row.name, entry: asEntry(row.entry) });
+      list.push({ name: row.name, entry: asEntry(row.entry), tags: normalizeTags(parseStoredTags(row.tags)) });
       habitsByTemplate.set(row.template_id, list);
     }
     const listed = templates.map((template) => ({
@@ -514,6 +516,19 @@ export function createHabitTemplate(
   return withDbLock(() => createHabitTemplateNow(db, rawName, drafts));
 }
 
+export function updateHabitTemplate(
+  db: SQLiteDatabase,
+  templateId: string,
+  rawName: string,
+  drafts: readonly TemplateDraft[],
+): Promise<void> {
+  return withDbLock(() => updateHabitTemplateNow(db, templateId, rawName, drafts));
+}
+
+export function deleteHabitTemplate(db: SQLiteDatabase, templateId: string): Promise<void> {
+  return withDbLock(() => deleteHabitTemplateNow(db, templateId));
+}
+
 export function unsetMonthTemplate(db: SQLiteDatabase, templateId: string, now = new Date()): Promise<string> {
   return withDbLock(() => unsetMonthTemplateNow(db, templateId, now));
 }
@@ -562,41 +577,90 @@ export function startMonthFromTemplate(
   return withDbLock(() => startMonthFromTemplateNow(db, templateId, now));
 }
 
+function checkedTemplateDrafts(drafts: readonly TemplateDraft[]) {
+  if (!drafts.length) throw new Error("Add a habit before saving.");
+  if (drafts.length > TEMPLATE_ROW_MAX) throw new Error("A template holds 40 habits.");
+  return drafts.map((draft, index) => {
+    const habitName = validateName(draft.name);
+    const entry = entryForName(habitName, chosenEntry(draft.entry));
+    return { habitName, entry, tags: normalizeTags(draft.tags), index };
+  });
+}
+
+async function insertTemplateRows(
+  db: SQLiteDatabase,
+  templateId: string,
+  drafts: readonly TemplateDraft[],
+): Promise<void> {
+  for (const row of checkedTemplateDrafts(drafts)) {
+    await db.runAsync(
+      `INSERT INTO template_rows (
+         id, template_id, name, sort_order, entry, blank_counts_as_miss,
+         reminder_hour, reminder_minute, tags
+       ) VALUES (?, ?, ?, ?, ?, 1, NULL, NULL, ?)`,
+      createId(),
+      templateId,
+      row.habitName,
+      row.index,
+      row.entry,
+      JSON.stringify(row.tags),
+    );
+  }
+}
+
 async function createHabitTemplateNow(
   db: SQLiteDatabase,
   rawName: string,
   drafts: readonly TemplateDraft[],
 ): Promise<void> {
   const name = templateName(rawName);
-  if (!drafts.length) throw new Error("Add a habit before saving.");
-  if (drafts.length > TEMPLATE_ROW_MAX) throw new Error("A template holds 40 habits.");
-  const rows = drafts.map((draft, index) => {
-    const habitName = validateName(draft.name);
-    const entry = entryForName(habitName, chosenEntry(draft.entry));
-    return { habitName, entry, tags: normalizeTags(draft.tags), index };
-  });
-  const existing = await db.getFirstAsync<{ id: string }>(
-    "SELECT id FROM templates WHERE lower(name) = lower(?)",
-    name,
-  );
-  if (existing) throw new Error("That name is already saved.");
-  const templateId = createId();
+  checkedTemplateDrafts(drafts);
   await db.withTransactionAsync(async () => {
+    const count = await db.getFirstAsync<{ n: number }>("SELECT COUNT(*) AS n FROM templates");
+    if (Number(count?.n ?? 0) >= TEMPLATE_LIMIT) throw new Error("Three templates is the limit.");
+    const existing = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM templates WHERE lower(name) = lower(?)",
+      name,
+    );
+    if (existing) throw new Error("That name is already saved.");
+    const templateId = createId();
     await db.runAsync("INSERT INTO templates (id, name) VALUES (?, ?)", templateId, name);
-    for (const row of rows) {
-      await db.runAsync(
-        `INSERT INTO template_rows (
-           id, template_id, name, sort_order, entry, blank_counts_as_miss,
-           reminder_hour, reminder_minute, tags
-         ) VALUES (?, ?, ?, ?, ?, 1, NULL, NULL, ?)`,
-        createId(),
-        templateId,
-        row.habitName,
-        row.index,
-        row.entry,
-        JSON.stringify(row.tags),
-      );
-    }
+    await insertTemplateRows(db, templateId, drafts);
+  });
+}
+
+async function updateHabitTemplateNow(
+  db: SQLiteDatabase,
+  templateId: string,
+  rawName: string,
+  drafts: readonly TemplateDraft[],
+): Promise<void> {
+  if (!/^[A-Za-z0-9-]{8,80}$/.test(templateId)) throw new Error("That list is not stored.");
+  const name = templateName(rawName);
+  checkedTemplateDrafts(drafts);
+  await db.withTransactionAsync(async () => {
+    const current = await db.getFirstAsync<{ id: string }>("SELECT id FROM templates WHERE id = ?", templateId);
+    if (!current) throw new Error("That list is not stored.");
+    const clash = await db.getFirstAsync<{ id: string }>(
+      "SELECT id FROM templates WHERE lower(name) = lower(?) AND id <> ?",
+      name,
+      templateId,
+    );
+    if (clash) throw new Error("That name is already saved.");
+    await db.runAsync("UPDATE templates SET name = ? WHERE id = ?", name, templateId);
+    await db.runAsync("DELETE FROM template_rows WHERE template_id = ?", templateId);
+    await insertTemplateRows(db, templateId, drafts);
+  });
+}
+
+async function deleteHabitTemplateNow(db: SQLiteDatabase, templateId: string): Promise<void> {
+  if (!/^[A-Za-z0-9-]{8,80}$/.test(templateId)) throw new Error("That list is not stored.");
+  const current = await db.getFirstAsync<{ id: string }>("SELECT id FROM templates WHERE id = ?", templateId);
+  if (!current) throw new Error("That list is not stored.");
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("DELETE FROM settings WHERE value = ? AND key LIKE 'tpl_%'", templateId);
+    await db.runAsync("DELETE FROM template_rows WHERE template_id = ?", templateId);
+    await db.runAsync("DELETE FROM templates WHERE id = ?", templateId);
   });
 }
 

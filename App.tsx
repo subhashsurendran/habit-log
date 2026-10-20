@@ -25,7 +25,7 @@ type Place =
   | { kind: "today"; openAdd?: boolean }
   | { kind: "score"; monthId?: string }
   | { kind: "templates" }
-  | { kind: "template-editor" }
+  | { kind: "template-editor"; templateId?: string }
   | { kind: "month"; monthId: string }
   | { kind: "profile" };
 
@@ -225,9 +225,11 @@ function Shell() {
         ) : null}
         {!fatal && prefs && (place.kind === "templates" || place.kind === "template-editor") ? (
           <TemplatesScreen
-            key={place.kind}
+            key={place.kind === "template-editor" ? `edit-${place.templateId ?? "new"}` : "templates"}
             editing={place.kind === "template-editor"}
+            templateId={place.kind === "template-editor" ? (place.templateId ?? null) : null}
             onBegin={() => push({ kind: "template-editor" })}
+            onEdit={(templateId) => push({ kind: "template-editor", templateId })}
             onDone={() => setStack((current) => (current.length > 1 ? current.slice(0, -1) : current))}
             onOpenToday={() => push({ kind: "today" })}
             onGesture={onGesture}

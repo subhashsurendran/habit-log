@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import {
+  TEMPLATE_LIMIT,
   createHabitTemplate,
+  deleteHabitTemplate,
   loadDashboard,
   openAppDatabase,
   startMonthFromTemplate,
   unsetMonthTemplate,
+  updateHabitTemplate,
   type DashboardState,
   type TemplateDraft,
 } from "./db";
@@ -27,13 +30,17 @@ function kindLabel(entry: Entry): string {
 
 export function TemplatesScreen({
   editing,
+  templateId,
   onBegin,
+  onEdit,
   onDone,
   onOpenToday,
   onGesture,
 }: {
   editing: boolean;
+  templateId: string | null;
   onBegin: () => void;
+  onEdit: (templateId: string) => void;
   onDone: () => void;
   onOpenToday: () => void;
   onGesture: () => void;
@@ -45,6 +52,8 @@ export function TemplatesScreen({
   const [rows, setRows] = useState<TemplateDraft[]>([]);
   const [habitName, setHabitName] = useState("");
   const [entry, setEntry] = useState<Entry>("tick");
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   function reload() {
     return openAppDatabase().then((database) => loadDashboard(database));
@@ -66,6 +75,19 @@ export function TemplatesScreen({
     };
   }, []);
 
+  useEffect(() => {
+    if (!editing || !templateId || !board || loadedId === templateId) return;
+    const template = board.templates.find((item) => item.id === templateId);
+    if (!template) {
+      setBanner("That list is not stored.");
+      setLoadedId(templateId);
+      return;
+    }
+    setName(template.name);
+    setRows(template.habits.map((habit) => ({ name: habit.name, entry: habit.entry, tags: habit.tags })));
+    setLoadedId(templateId);
+  }, [board, editing, loadedId, templateId]);
+
   function addHabit() {
     onGesture();
     try {
@@ -82,7 +104,11 @@ export function TemplatesScreen({
   function save() {
     onGesture();
     void openAppDatabase()
-      .then((database) => createHabitTemplate(database, name, rows))
+      .then((database) =>
+        templateId
+          ? updateHabitTemplate(database, templateId, name, rows)
+          : createHabitTemplate(database, name, rows),
+      )
       .then(() => reload())
       .then((next) => {
         setBoard(next);
@@ -92,6 +118,24 @@ export function TemplatesScreen({
         setEntry("tick");
         setBanner(null);
         onDone();
+      })
+      .catch((error: unknown) => setBanner(errorText(error)));
+  }
+
+  function remove(templateIdToDelete: string) {
+    onGesture();
+    if (confirmDeleteId !== templateIdToDelete) {
+      setConfirmDeleteId(templateIdToDelete);
+      setBanner("Delete removes the list. A month already started stays.");
+      return;
+    }
+    void openAppDatabase()
+      .then((database) => deleteHabitTemplate(database, templateIdToDelete))
+      .then(() => reload())
+      .then((next) => {
+        setBoard(next);
+        setConfirmDeleteId(null);
+        setBanner("Deleted.");
       })
       .catch((error: unknown) => setBanner(errorText(error)));
   }
@@ -217,6 +261,10 @@ export function TemplatesScreen({
             <Text style={ui.buttonText}>Cancel</Text>
           </Pressable>
         </View>
+      ) : board && board.templates.length >= TEMPLATE_LIMIT ? (
+        <Text style={ui.quiet} testID="template-limit">
+          Three templates is the limit.
+        </Text>
       ) : (
         <Pressable
           style={ui.primary}
@@ -224,6 +272,7 @@ export function TemplatesScreen({
           onPress={() => {
             onGesture();
             setBanner(null);
+            setConfirmDeleteId(null);
             onBegin();
           }}
         >
@@ -247,25 +296,56 @@ export function TemplatesScreen({
               </Text>
             ))}
             <Text style={ui.quiet}>{setForMonth ? `Set for ${targetTitle}` : `Not set for ${targetTitle}`}</Text>
-            {setForMonth ? (
+            <View style={ui.row}>
+              {setForMonth ? (
+                <Pressable
+                  style={ui.button}
+                  accessibilityLabel="Unset"
+                  testID={`template-unset-${template.id}`}
+                  onPress={() => {
+                    setConfirmDeleteId(null);
+                    unset(template.id);
+                  }}
+                >
+                  <Text style={ui.buttonText}>Unset</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={ui.button}
+                  accessibilityLabel={`Set for ${targetTitle}`}
+                  testID={`template-start-${template.id}`}
+                  onPress={() => {
+                    setConfirmDeleteId(null);
+                    start(template.id);
+                  }}
+                >
+                  <Text style={ui.buttonText}>Set</Text>
+                </Pressable>
+              )}
               <Pressable
                 style={ui.button}
-                accessibilityLabel="Unset"
-                testID={`template-unset-${template.id}`}
-                onPress={() => unset(template.id)}
+                accessibilityLabel={`Edit ${template.name}`}
+                testID={`template-edit-${template.id}`}
+                onPress={() => {
+                  onGesture();
+                  setConfirmDeleteId(null);
+                  setBanner(null);
+                  onEdit(template.id);
+                }}
               >
-                <Text style={ui.buttonText}>Unset</Text>
+                <Text style={ui.buttonText}>Edit</Text>
               </Pressable>
-            ) : (
               <Pressable
                 style={ui.button}
-                accessibilityLabel={`Set for ${targetTitle}`}
-                testID={`template-start-${template.id}`}
-                onPress={() => start(template.id)}
+                accessibilityLabel={
+                  confirmDeleteId === template.id ? `Confirm delete ${template.name}` : `Delete ${template.name}`
+                }
+                testID={`template-delete-${template.id}`}
+                onPress={() => remove(template.id)}
               >
-                <Text style={ui.buttonText}>Set</Text>
+                <Text style={ui.buttonText}>{confirmDeleteId === template.id ? "Confirm delete" : "Delete"}</Text>
               </Pressable>
-            )}
+            </View>
           </View>
         );
       })}
