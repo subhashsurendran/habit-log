@@ -24,6 +24,7 @@ function play(source: number, current: AudioPlayer | null): AudioPlayer | null {
   if (!soundOn) return current;
   try {
     const player = current ?? createAudioPlayer(source);
+    player.loop = false;
     void player.seekTo(0).then(() => {
       player.play();
     });

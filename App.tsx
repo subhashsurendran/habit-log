@@ -73,7 +73,6 @@ function tabFor(place: Place): TabId {
 
 function Shell() {
   const loop = useRef<CalmLoopHandle>(null);
-  const mutedRef = useRef(true);
   const sheetBack = useRef<(() => boolean) | null>(null);
   const [stack, setStack] = useState<Place[]>([{ kind: "home" }]);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
@@ -86,10 +85,11 @@ function Shell() {
       .then(async (database) => {
         const stored = await readSetting(database, DISPLAY_NAME_KEY);
         const flag = await readSetting(database, SOUND_MUTED_KEY);
-        if (flag !== "1") await writeSetting(database, SOUND_MUTED_KEY, "1");
+        const muted = flag !== "0";
+        if (flag == null) await writeSetting(database, SOUND_MUTED_KEY, "1");
         const month = await loadMonth(database);
         if (!live) return;
-        setPrefs({ name: callNameOrNull(stored), muted: true });
+        setPrefs({ name: callNameOrNull(stored), muted });
         try {
           const now = new Date();
           const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
@@ -127,7 +127,6 @@ function Shell() {
     };
   }, []);
 
-  mutedRef.current = prefs?.muted ?? true;
   setCueSound(!(prefs?.muted ?? true));
 
   const bindBack = useCallback((handler: (() => boolean) | null) => {
@@ -135,7 +134,7 @@ function Shell() {
   }, []);
 
   function onGesture() {
-    if (!mutedRef.current) loop.current?.start();
+    // The grid stays silent. Sound is the tick and the night tone only.
   }
 
   function back() {
@@ -232,7 +231,7 @@ function Shell() {
             onName={(name) => setPrefs({ ...prefs, name })}
             onMuted={(muted) => setPrefs({ ...prefs, muted })}
             onGesture={onGesture}
-            onStart={() => loop.current?.start()}
+            onStart={() => undefined}
             onStop={() => loop.current?.stop()}
           />
         ) : null}
