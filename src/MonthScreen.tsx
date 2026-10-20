@@ -78,7 +78,7 @@ import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
-import { scoreStoredMonth } from "./score";
+import { easeSentence, scoreStoredMonth, weeklyEase } from "./score";
 import { reminderNote } from "./reminderWhen";
 import { suggestionsNotKept } from "./suggestions";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
@@ -327,6 +327,13 @@ export function MonthScreen({
     );
   }
 
+  const easeWhen = (() => {
+    const now = new Date();
+    if (month.year === now.getFullYear() && month.month === now.getMonth() + 1) return now;
+    return new Date(month.year, month.month, 0);
+  })();
+  const ease = weeklyEase(month, easeWhen);
+
   return (
     <View style={styles.screen} testID="month-grid">
       <View style={styles.monthBar}>
@@ -336,6 +343,11 @@ export function MonthScreen({
         {sample ? (
           <Text style={styles.quiet} testID="sample-month">
             Sample
+          </Text>
+        ) : null}
+        {ease ? (
+          <Text style={styles.quiet} testID="ease-line">
+            {easeSentence(ease)}
           </Text>
         ) : null}
         {review && pastScore ? (
@@ -660,6 +672,13 @@ export function MonthScreen({
                           minute: habit.reminderMinute,
                           todayWrapped: true,
                         });
+                      }
+                      const hourRaw = await readSetting(database, EVENING_HOUR_KEY);
+                      const minuteRaw = await readSetting(database, EVENING_MINUTE_KEY);
+                      const hour = hourRaw == null ? null : Number(hourRaw);
+                      const minute = minuteRaw == null ? null : Number(minuteRaw);
+                      if (hour != null && minute != null && Number.isInteger(hour) && Number.isInteger(minute)) {
+                        await syncEveningWrap(hour, minute, true);
                       }
                     })
                       .then(() => {
@@ -1005,7 +1024,7 @@ export function MonthScreen({
               await writeSetting(database, EVENING_HOUR_KEY, String(hour));
               await writeSetting(database, EVENING_MINUTE_KEY, String(minute));
             });
-            const result = await syncEveningWrap(hour, minute);
+            const result = await syncEveningWrap(hour, minute, monthWrappedToday(month));
             setEvening({ hour, minute });
             setEveningOpen(false);
             if (result === "unavailable") setBanner("Saved. The notification was not scheduled.");

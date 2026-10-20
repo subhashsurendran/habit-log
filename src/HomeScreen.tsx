@@ -4,10 +4,15 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { BrandLockup } from "./BrandLockup";
 import {
   DISPLAY_NAME_KEY,
+  EVENING_HOUR_KEY,
+  EVENING_MINUTE_KEY,
   addHabit,
   loadDashboard,
   markDoneToday,
   openAppDatabase,
+  readSetting,
+  setLocked,
+  wrapToday,
   writeSetting,
   type DashboardState,
 } from "./db";
@@ -15,7 +20,7 @@ import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { greetingLine } from "./greet";
 import { dateFor, monthTitle } from "./month";
 import { validateCallName } from "./names";
-import { syncFollowUp } from "./notify";
+import { syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
 import { openTodayHabits, scoreStoredMonth, type OpenHabit } from "./score";
 import { suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
 import { ui } from "./theme";
@@ -122,12 +127,49 @@ export function HomeScreen({
       .catch((error: unknown) => setBanner(errorText(error)));
   }
 
+  function closeNight() {
+    if (!board) return;
+    onGesture();
+    const today = new Date();
+    void openAppDatabase()
+      .then(async (database) => {
+        await wrapToday(database, board.current.id, board.current.year, board.current.month);
+        await setLocked(database, board.current.id, true);
+        for (const habit of board.current.habits) {
+          if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) continue;
+          await syncDailyReminder({
+            habitId: habit.id,
+            habitName: habit.name,
+            hour: habit.reminderHour,
+            minute: habit.reminderMinute,
+            todayWrapped: true,
+          });
+        }
+        const hourRaw = await readSetting(database, EVENING_HOUR_KEY);
+        const minuteRaw = await readSetting(database, EVENING_MINUTE_KEY);
+        const hour = hourRaw == null ? null : Number(hourRaw);
+        const minute = minuteRaw == null ? null : Number(minuteRaw);
+        if (hour != null && minute != null && Number.isInteger(hour) && Number.isInteger(minute)) {
+          await syncEveningWrap(hour, minute, true);
+        }
+        return loadDashboard(database);
+      })
+      .then((next) => {
+        if (!next) return;
+        setBoard(next);
+        setBanner("Tonight is closed.");
+      })
+      .catch((error: unknown) => setBanner(errorText(error)));
+  }
+
   const score = board ? scoreStoredMonth(board.current) : null;
   const open = board ? openTodayHabits(board.current) : [];
   const habitCount = board?.current.habits.length ?? 0;
   const past = board ? board.past.filter((month) => month.id !== board.sampleMonthId) : [];
   const upcoming = board ? board.upcoming.filter((month) => month.id !== board.sampleMonthId) : [];
   const sampleMonths = board ? board.past.filter((month) => month.id === board.sampleMonthId) : [];
+  const todayKey = dateFor(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+  const nightClosed = board?.current.wrappedDates.includes(todayKey) ?? false;
 
   return (
     <ScrollView
@@ -180,12 +222,17 @@ export function HomeScreen({
         {score && score.percent == null ? <Text style={ui.body}>No closed days yet</Text> : null}
         {score && score.percent != null ? <Text style={ui.percent}>{score.percent}%</Text> : null}
       </Pressable>
-      {board && habitCount > 0 && open.length === 0 ? (
+      {board && nightClosed ? (
+        <Text style={ui.body} testID="night-closed">
+          Tonight is closed.
+        </Text>
+      ) : null}
+      {board && habitCount > 0 && open.length === 0 && !nightClosed ? (
         <Text style={ui.quiet} testID="done-for-today">
           Done for today.
         </Text>
       ) : null}
-      {open.length ? (
+      {!nightClosed && open.length ? (
         <View style={ui.stack} testID="open-today">
           <Text style={ui.section}>
             {open.length} still open today
@@ -207,6 +254,11 @@ export function HomeScreen({
             );
           })}
         </View>
+      ) : null}
+      {board && habitCount > 0 && !nightClosed ? (
+        <Pressable style={ui.primary} testID="home-wrap" accessibilityLabel="Wrap up day" onPress={closeNight}>
+          <Text style={ui.primaryText}>Wrap up day</Text>
+        </Pressable>
       ) : null}
       <Pressable
         style={ui.primary}

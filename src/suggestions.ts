@@ -36,7 +36,10 @@ function kept(existing: readonly string[], suggestion: string): boolean {
   });
 }
 
-/** Suggestions whose names are not already on this month. */
+export function smallerLine(habitName: string): string {
+  const match = HABIT_SUGGESTIONS.find((item) => kept([habitName], item.name));
+  return match?.line ?? "This week, the smallest version once is enough.";
+}
 export function suggestionsNotKept(existingNames: readonly string[]): HabitSuggestion[] {
   return HABIT_SUGGESTIONS.filter((item) => !kept(existingNames, item.name));
 }

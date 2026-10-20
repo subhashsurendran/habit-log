@@ -157,26 +157,44 @@ export async function reminderIsScheduled(habitId: string): Promise<boolean> {
 
 const EVENING_ID = "pencheck-evening-wrap";
 
-/** One local daily notification. The same id is replaced, so they do not stack. */
-export async function syncEveningWrap(hour: number | null, minute: number | null): Promise<NotifyResult> {
+/** Evening wrap. Tonight is left off once the day is already closed. */
+export async function syncEveningWrap(
+  hour: number | null,
+  minute: number | null,
+  todayWrapped = false,
+): Promise<NotifyResult> {
   await cancelId(EVENING_ID);
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    await Promise.all(
+      scheduled
+        .filter((item) => item.identifier === EVENING_ID || item.identifier.startsWith(`${EVENING_ID}-`))
+        .map((item) => cancelId(item.identifier)),
+    );
+  } catch {
+    // The plain id above is already cancelled.
+  }
   if (hour == null || minute == null) return "cancelled";
+  const upcoming = reminderInstants(hour, minute, new Date(), todayWrapped);
+  if (!upcoming.length) return "unavailable";
   try {
     if (!(await alertsAllowed())) return "unavailable";
     await ensureChannel();
-    await Notifications.scheduleNotificationAsync({
-      identifier: EVENING_ID,
-      content: {
-        title: "MyDTC",
-        body: "Wrap up today",
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DAILY,
-        hour,
-        minute,
-        channelId: CHANNEL,
-      },
-    });
+    for (const when of upcoming) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: `${EVENING_ID}-${dayKey(when)}`,
+        content: {
+          title: "MyDTC",
+          body: "Wrap up today",
+          sound: true,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: when,
+          channelId: CHANNEL,
+        },
+      });
+    }
     return "scheduled";
   } catch {
     return "unavailable";

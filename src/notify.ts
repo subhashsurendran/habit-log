@@ -39,7 +39,11 @@ export async function reminderIsScheduled(_habitId: string): Promise<boolean> {
 }
 
 /** One daily reminder. Passing null clears it. A second call replaces the first. */
-export async function syncEveningWrap(hour: number | null, minute: number | null): Promise<NotifyResult> {
+export async function syncEveningWrap(
+  hour: number | null,
+  minute: number | null,
+  _todayWrapped = false,
+): Promise<NotifyResult> {
   if (hour == null || minute == null) return "cancelled";
   return "stored";
 }

@@ -4,7 +4,7 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
-import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
+import { DISPLAY_NAME_KEY, EVENING_HOUR_KEY, EVENING_MINUTE_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
 import { IdeasScreen } from "./src/IdeasScreen";
@@ -12,7 +12,7 @@ import { ProfileScreen } from "./src/ProfileScreen";
 import { currentMonth, dateFor } from "./src/month";
 import { MonthScreen } from "./src/MonthScreen";
 import { callNameOrNull } from "./src/names";
-import { syncDailyReminder } from "./src/notify";
+import { syncDailyReminder, syncEveningWrap } from "./src/notify";
 import { ScoreScreen } from "./src/ScoreScreen";
 import { ScreenNav } from "./src/ScreenNav";
 import { TabBar, type TabId } from "./src/TabBar";
@@ -104,6 +104,13 @@ function Shell() {
               minute: habit.reminderMinute,
               todayWrapped,
             });
+          }
+          const hourRaw = await readSetting(database, EVENING_HOUR_KEY);
+          const minuteRaw = await readSetting(database, EVENING_MINUTE_KEY);
+          const hour = hourRaw == null ? null : Number(hourRaw);
+          const minute = minuteRaw == null ? null : Number(minuteRaw);
+          if (hour != null && minute != null && Number.isInteger(hour) && Number.isInteger(minute)) {
+            await syncEveningWrap(hour, minute, todayWrapped);
           }
         } catch {
           // A reminder that cannot be scheduled stays off. The rest of the app still opens.

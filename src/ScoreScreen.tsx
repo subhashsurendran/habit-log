@@ -4,7 +4,7 @@ import { ScrollView, Text, View } from "react-native";
 import { loadMonth, openAppDatabase, openMonth, SAMPLE_MONTH_KEY, readSetting } from "./db";
 import { logOpenFailed, OPEN_FAILED } from "./errors";
 import { monthTitle } from "./month";
-import { scoreStoredMonth, weeklyFocusTag, type MonthScore } from "./score";
+import { scoreStoredMonth, weeklyEase, easeSentence, type MonthScore } from "./score";
 import { ui } from "./theme";
 
 export function ScoreScreen({ monthId }: { monthId?: string }) {
@@ -30,7 +30,8 @@ export function ScoreScreen({ monthId }: { monthId?: string }) {
         setTitle(monthTitle(month.year, month.month));
         setSample(isSample);
         setScore(scoreStoredMonth(month, when));
-        setFocus(weeklyFocusTag(month, when));
+        const ease = weeklyEase(month, when);
+        setFocus(ease ? { label: easeSentence(ease), misses: 0 } : null);
       })
       .catch(() => {
         if (!live) return;
@@ -92,7 +93,7 @@ function ScoreBody({
       <Text style={ui.section}>This week</Text>
       {focus ? (
         <Text style={ui.body} testID="score-week">
-          {focus.label} is the one to watch.
+          {focus.label}
         </Text>
       ) : (
         <Text style={ui.body} testID="score-week">
