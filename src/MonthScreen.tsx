@@ -319,208 +319,6 @@ export function MonthScreen({
 
   return (
     <View style={styles.screen} testID="month-grid">
-      <View style={styles.controls}>
-        <View style={styles.actions}>
-          {review && readOnly ? (
-            <Pressable
-              style={styles.button}
-              accessibilityLabel="Edit"
-              testID="edit-month"
-              onPress={() => {
-                setEditingPast(true);
-                if (month.locked) {
-                  void enqueue((database) => setLocked(database, month.id, false)).catch(() => undefined);
-                }
-              }}
-            >
-              <Text style={styles.buttonText}>Edit</Text>
-            </Pressable>
-          ) : (
-            <>
-              {frozen ? null : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Add habit"
-                  onPress={() => setAddOpen(true)}
-                  testID="add-row"
-                >
-                  <Text style={styles.buttonText}>Add habit</Text>
-                </Pressable>
-              )}
-              {review ? (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Done"
-                  testID="done-edit"
-                  onPress={() => {
-                    setEditingPast(false);
-                    void enqueue((database) => setLocked(database, month.id, true)).catch(() => undefined);
-                  }}
-                >
-                  <Text style={styles.buttonText}>Done</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel={month.locked ? "Unlock habits" : "Lock habits"}
-                  testID="lock-rows"
-                  onPress={() => {
-                    void enqueue((database) => setLocked(database, month.id, !month.locked)).catch(
-                      () => undefined,
-                    );
-                  }}
-                >
-                  <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
-                </Pressable>
-              )}
-              {review ? null : (
-                <Pressable
-                  style={[styles.button, styles.buttonOn]}
-                  accessibilityLabel="Wrap up day"
-                  testID="wrap-today"
-                  onPress={() => {
-                    void enqueue(async (database) => {
-                      await wrapToday(database, month.id, month.year, month.month);
-                      await setLocked(database, month.id, true);
-                    })
-                      .then(() => {
-                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-                      })
-                      .catch(() => undefined);
-                  }}
-                >
-                  <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
-                </Pressable>
-              )}
-            </>
-          )}
-          {undoReady ? (
-            <Pressable
-              style={styles.button}
-              accessibilityLabel="Undo"
-              testID="undo-mark"
-              onPress={() => {
-                void enqueue((database) => undoLastMark(database))
-                  .then(() => setUndoReady(canUndoMark()))
-                  .catch(() => undefined);
-              }}
-            >
-              <Text style={styles.buttonText}>Undo</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            style={styles.button}
-            accessibilityLabel={more ? "Less" : "More"}
-            testID="more-controls"
-            onPress={() => {
-              setMore((open) => !open);
-              setRestoreArmed(false);
-            }}
-          >
-            <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
-          </Pressable>
-        </View>
-        {more || query.length > 0 || tagFilter != null ? (
-          <>
-            <TextInput
-              testID="habit-search"
-              accessibilityLabel="Search habits"
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search habits"
-              placeholderTextColor="#8A7A9E"
-              autoCorrect={false}
-              style={styles.search}
-            />
-            {tagChoices.length ? (
-              <View style={styles.actions}>
-                <Pressable
-                  accessibilityLabel="All habits"
-                  testID="tag-filter-all"
-                  style={[styles.button, tagFilter == null && styles.buttonOn]}
-                  onPress={() => setTagFilter(null)}
-                >
-                  <Text style={styles.buttonText}>All</Text>
-                </Pressable>
-                {tagChoices.map((tag) => (
-                  <Pressable
-                    key={tag}
-                    accessibilityLabel={`Filter ${tag}`}
-                    testID={`tag-filter-${testSlug(tag)}`}
-                    style={[styles.button, tagFilter === tag && styles.buttonOn]}
-                    onPress={() => setTagFilter(tag)}
-                  >
-                    <Text style={styles.buttonText}>{tag}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-            {review ? null : (
-              <Pressable
-                style={styles.button}
-                accessibilityLabel="Evening reminder"
-                testID="evening-reminder"
-                onPress={() => setEveningOpen(true)}
-              >
-                <Text style={styles.buttonText}>
-                  {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
-                </Text>
-              </Pressable>
-            )}
-            <View style={styles.actions}>
-              <Pressable
-                style={styles.button}
-                accessibilityLabel="Save backup"
-                testID="save-backup"
-                onPress={() => {
-                  void enqueue(async (database) => {
-                    const name = await saveBackup(database);
-                    setBanner(`Saved ${name} on this phone.`);
-                    setRestoreArmed(false);
-                  }).catch(() => undefined);
-                }}
-              >
-                <Text style={styles.buttonText}>Save backup</Text>
-              </Pressable>
-              {restoreArmed ? (
-                <>
-                  <Text style={styles.quiet}>This replaces the log on this phone.</Text>
-                  <Pressable
-                    style={styles.button}
-                    accessibilityLabel="Confirm restore"
-                    testID="confirm-restore"
-                    onPress={() => {
-                      const name = listBackupNames()[0];
-                      if (!name) {
-                        setBanner("No backup is saved on this phone.");
-                        setRestoreArmed(false);
-                        return;
-                      }
-                      void enqueue(async (database) => {
-                        await restoreBackup(database, name);
-                        setBanner("Restored on this phone.");
-                        setRestoreArmed(false);
-                      }).catch(() => undefined);
-                    }}
-                  >
-                    <Text style={styles.buttonText}>Confirm restore</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Restore latest"
-                  testID="restore-backup"
-                  onPress={() => setRestoreArmed(true)}
-                >
-                  <Text style={styles.buttonText}>Restore latest</Text>
-                </Pressable>
-              )}
-            </View>
-          </>
-        ) : null}
-        {banner ? <Text style={styles.banner}>{banner}</Text> : null}
-      </View>
       <View style={styles.monthBar}>
         <Text style={styles.month} testID="month-title">
           {monthTitle(month.year, month.month)}
@@ -678,6 +476,209 @@ export function MonthScreen({
           </ScrollView>
         </View>
       </ScrollView>
+
+      <View style={styles.controls}>
+        {more || query.length > 0 || tagFilter != null ? (
+          <>
+            <TextInput
+              testID="habit-search"
+              accessibilityLabel="Search habits"
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search habits"
+              placeholderTextColor="#8A7A9E"
+              autoCorrect={false}
+              style={styles.search}
+            />
+            {tagChoices.length ? (
+              <View style={styles.actions}>
+                <Pressable
+                  accessibilityLabel="All habits"
+                  testID="tag-filter-all"
+                  style={[styles.button, tagFilter == null && styles.buttonOn]}
+                  onPress={() => setTagFilter(null)}
+                >
+                  <Text style={styles.buttonText}>All</Text>
+                </Pressable>
+                {tagChoices.map((tag) => (
+                  <Pressable
+                    key={tag}
+                    accessibilityLabel={`Filter ${tag}`}
+                    testID={`tag-filter-${testSlug(tag)}`}
+                    style={[styles.button, tagFilter === tag && styles.buttonOn]}
+                    onPress={() => setTagFilter(tag)}
+                  >
+                    <Text style={styles.buttonText}>{tag}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {review ? null : (
+              <Pressable
+                style={styles.button}
+                accessibilityLabel="Evening reminder"
+                testID="evening-reminder"
+                onPress={() => setEveningOpen(true)}
+              >
+                <Text style={styles.buttonText}>
+                  {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
+                </Text>
+              </Pressable>
+            )}
+            <View style={styles.actions}>
+              <Pressable
+                style={styles.button}
+                accessibilityLabel="Save backup"
+                testID="save-backup"
+                onPress={() => {
+                  void enqueue(async (database) => {
+                    const name = await saveBackup(database);
+                    setBanner(`Saved ${name} on this phone.`);
+                    setRestoreArmed(false);
+                  }).catch(() => undefined);
+                }}
+              >
+                <Text style={styles.buttonText}>Save backup</Text>
+              </Pressable>
+              {restoreArmed ? (
+                <>
+                  <Text style={styles.quiet}>This replaces the log on this phone.</Text>
+                  <Pressable
+                    style={styles.button}
+                    accessibilityLabel="Confirm restore"
+                    testID="confirm-restore"
+                    onPress={() => {
+                      const name = listBackupNames()[0];
+                      if (!name) {
+                        setBanner("No backup is saved on this phone.");
+                        setRestoreArmed(false);
+                        return;
+                      }
+                      void enqueue(async (database) => {
+                        await restoreBackup(database, name);
+                        setBanner("Restored on this phone.");
+                        setRestoreArmed(false);
+                      }).catch(() => undefined);
+                    }}
+                  >
+                    <Text style={styles.buttonText}>Confirm restore</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Restore latest"
+                  testID="restore-backup"
+                  onPress={() => setRestoreArmed(true)}
+                >
+                  <Text style={styles.buttonText}>Restore latest</Text>
+                </Pressable>
+              )}
+            </View>
+          </>
+        ) : null}
+        <View style={styles.actions}>
+          {review && readOnly ? (
+            <Pressable
+              style={styles.button}
+              accessibilityLabel="Edit"
+              testID="edit-month"
+              onPress={() => {
+                setEditingPast(true);
+                if (month.locked) {
+                  void enqueue((database) => setLocked(database, month.id, false)).catch(() => undefined);
+                }
+              }}
+            >
+              <Text style={styles.buttonText}>Edit</Text>
+            </Pressable>
+          ) : (
+            <>
+              {frozen ? null : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Add habit"
+                  onPress={() => setAddOpen(true)}
+                  testID="add-row"
+                >
+                  <Text style={styles.buttonText}>Add habit</Text>
+                </Pressable>
+              )}
+              {review ? (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Done"
+                  testID="done-edit"
+                  onPress={() => {
+                    setEditingPast(false);
+                    void enqueue((database) => setLocked(database, month.id, true)).catch(() => undefined);
+                  }}
+                >
+                  <Text style={styles.buttonText}>Done</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel={month.locked ? "Unlock habits" : "Lock habits"}
+                  testID="lock-rows"
+                  onPress={() => {
+                    void enqueue((database) => setLocked(database, month.id, !month.locked)).catch(
+                      () => undefined,
+                    );
+                  }}
+                >
+                  <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
+                </Pressable>
+              )}
+              {review ? null : (
+                <Pressable
+                  style={[styles.button, styles.buttonOn]}
+                  accessibilityLabel="Wrap up day"
+                  testID="wrap-today"
+                  onPress={() => {
+                    void enqueue(async (database) => {
+                      await wrapToday(database, month.id, month.year, month.month);
+                      await setLocked(database, month.id, true);
+                    })
+                      .then(() => {
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+                      })
+                      .catch(() => undefined);
+                  }}
+                >
+                  <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
+                </Pressable>
+              )}
+            </>
+          )}
+          {undoReady ? (
+            <Pressable
+              style={styles.button}
+              accessibilityLabel="Undo"
+              testID="undo-mark"
+              onPress={() => {
+                void enqueue((database) => undoLastMark(database))
+                  .then(() => setUndoReady(canUndoMark()))
+                  .catch(() => undefined);
+              }}
+            >
+              <Text style={styles.buttonText}>Undo</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            style={styles.button}
+            accessibilityLabel={more ? "Less" : "More"}
+            testID="more-controls"
+            onPress={() => {
+              setMore((open) => !open);
+              setRestoreArmed(false);
+            }}
+          >
+            <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
+          </Pressable>
+        </View>
+        {banner ? <Text style={styles.banner}>{banner}</Text> : null}
+      </View>
 
       {addOpen ? (
         <AddDialog
@@ -2225,8 +2226,15 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, backgroundColor: "#16121C" },
-  controls: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
-  monthBar: { paddingHorizontal: 16, marginTop: 16, marginBottom: 8 },
+  controls: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#3A3348",
+  },
+  monthBar: { paddingHorizontal: 16, marginTop: 8, marginBottom: 8 },
   sheet: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
   sheetBody: { flex: 1, minHeight: 0 },
   scorePercent: { fontSize: 40, fontWeight: "800", color: "#F6F1FF" },

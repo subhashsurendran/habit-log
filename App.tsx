@@ -4,7 +4,7 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
-import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, ensureSampleSeptember, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
+import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
@@ -84,7 +84,6 @@ function Shell() {
         const flag = await readSetting(database, SOUND_MUTED_KEY);
         if (flag !== "1") await writeSetting(database, SOUND_MUTED_KEY, "1");
         const month = await loadMonth(database);
-        await ensureSampleSeptember(database);
         if (!live) return;
         setPrefs({ name: callNameOrNull(stored), muted: true });
         try {

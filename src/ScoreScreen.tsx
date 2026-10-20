@@ -92,7 +92,7 @@ function ScoreBody({
       <Text style={ui.section}>This week</Text>
       {focus ? (
         <Text style={ui.body} testID="score-week">
-          {focus.label} · {focus.misses}
+          {focus.label} is the one to watch.
         </Text>
       ) : (
         <Text style={ui.body} testID="score-week">
