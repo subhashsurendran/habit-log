@@ -605,6 +605,11 @@ export function MonthScreen({
             </View>
           </>
         ) : null}
+        {banner ? (
+          <Text style={banner.failed ? styles.banner : styles.saved} testID="today-line">
+            {banner.text}
+          </Text>
+        ) : null}
         <View style={styles.actions}>
           {review && readOnly ? (
             <Pressable
@@ -725,9 +730,6 @@ export function MonthScreen({
             <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
           </Pressable>
         </View>
-        {banner ? (
-          <Text style={banner.failed ? styles.banner : styles.saved}>{banner.text}</Text>
-        ) : null}
       </View>
 
       {addOpen ? (

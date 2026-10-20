@@ -175,6 +175,13 @@ export function HomeScreen({
   const sampleMonths = board ? board.past.filter((month) => month.id === board.sampleMonthId) : [];
   const todayKey = dateFor(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
   const nightClosed = board?.current.wrappedDates.includes(todayKey) ?? false;
+  const homeLine = banner?.failed
+    ? banner.text
+    : fatal
+      ? fatal
+      : nightClosed
+        ? "Tonight is closed."
+        : (banner?.text ?? null);
 
   return (
     <ScrollView
@@ -222,16 +229,10 @@ export function HomeScreen({
         }}
       >
         <Text style={ui.section}>This month</Text>
-        {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
-        {!fatal && !score ? <Text style={ui.body}>Opening…</Text> : null}
+        {!score && !fatal ? <Text style={ui.body}>Opening…</Text> : null}
         {score && score.percent == null ? <Text style={ui.body}>No closed days yet</Text> : null}
         {score && score.percent != null ? <Text style={ui.percent}>{score.percent}%</Text> : null}
       </Pressable>
-      {board && nightClosed ? (
-        <Text style={ui.body} testID="night-closed">
-          Tonight is closed.
-        </Text>
-      ) : null}
       {!nightClosed && board && habitCount > 0 ? (
         <View style={ui.cardLive} testID="tonight">
           {open.length === 0 ? (
@@ -262,8 +263,11 @@ export function HomeScreen({
           <Pressable style={ui.primary} testID="home-wrap" accessibilityLabel="Wrap up day" onPress={closeNight}>
             <Text style={ui.primaryText}>Wrap up day</Text>
           </Pressable>
+          <HomeLine failed={Boolean(banner?.failed || fatal)} text={homeLine} />
         </View>
-      ) : null}
+      ) : (
+        <HomeLine failed={Boolean(banner?.failed || fatal)} text={homeLine} />
+      )}
       <Pressable
         style={ui.primary}
         accessibilityLabel="Track today"
@@ -354,8 +358,16 @@ export function HomeScreen({
           ))}
         </View>
       ) : null}
-      {banner ? <Text style={banner.failed ? ui.banner : ui.note}>{banner.text}</Text> : null}
     </ScrollView>
+  );
+}
+
+function HomeLine({ text, failed }: { text: string | null; failed: boolean }) {
+  if (!text) return null;
+  return (
+    <Text style={failed ? ui.banner : ui.note} testID={text === "Tonight is closed." ? "night-closed" : "home-line"}>
+      {text}
+    </Text>
   );
 }
 

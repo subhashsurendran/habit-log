@@ -77,7 +77,7 @@ export function ProfileScreen({
       <Text style={ui.title} accessibilityRole="header">
         {name ?? "Profile"}
       </Text>
-      <PremiumCard onGesture={onGesture} />
+      <PremiumCard notice={banner} onGesture={onGesture} />
       <Text style={ui.section}>Name</Text>
       <TextInput
         testID="profile-name"
@@ -106,12 +106,17 @@ export function ProfileScreen({
       >
         <Text style={ui.buttonText}>{muted ? "Sound off" : "Sound on"}</Text>
       </Pressable>
-      {banner ? <Text style={banner.failed ? ui.banner : ui.note}>{banner.text}</Text> : null}
     </ScrollView>
   );
 }
 
-function PremiumCard({ onGesture }: { onGesture: () => void }) {
+function PremiumCard({
+  notice,
+  onGesture,
+}: {
+  notice: { text: string; failed: boolean } | null;
+  onGesture: () => void;
+}) {
   const [offer, setOffer] = useState<PremiumOffer | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -174,7 +179,11 @@ function PremiumCard({ onGesture }: { onGesture: () => void }) {
           Not open for payment yet. It needs a paid Apple Developer membership and the product in App Store Connect.
         </Text>
       ) : null}
-      {note ? <Text style={ui.banner}>{note}</Text> : null}
+      {note ? (
+        <Text style={ui.banner}>{note}</Text>
+      ) : notice ? (
+        <Text style={notice.failed ? ui.banner : ui.note}>{notice.text}</Text>
+      ) : null}
     </View>
   );
 }
