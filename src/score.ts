@@ -14,12 +14,21 @@ export type ScoreFocus = {
   misses: number;
 };
 
+export type HabitScoreLine = {
+  id: string;
+  name: string;
+  doneDays: number[];
+  missDays: number[];
+};
+
 export type MonthScore = {
   done: number;
   miss: number;
   /** Null when done + miss is zero. The screen must not show a percent then. */
   percent: number | null;
   focus: ScoreFocus[];
+  /** Habits that closed at least one day, in grid order. View only. */
+  lines: HabitScoreLine[];
 };
 
 type ScoreHabit = {
@@ -115,24 +124,32 @@ export function scoreMonth(input: ScoreInput): MonthScore {
   let done = 0;
   let miss = 0;
   const focus = new Map<string, number>();
+  const lines: HabitScoreLine[] = [];
   const lastDay = daysInMonth(input.year, input.month);
 
   for (const habit of input.habits) {
+    const doneDays: number[] = [];
+    const missDays: number[] = [];
     for (let day = 1; day <= lastDay; day += 1) {
       const date = dateFor(input.year, input.month, day);
       if (!inScoreRange(date, input.startedOn, input.today)) continue;
       const cell = byCell.get(`${habit.id}|${date}`);
       if (isDone(habit.entry, cell)) {
         done += 1;
+        doneDays.push(day);
         continue;
       }
       if (!isMiss(habit.entry, habit.blankCountsAsMiss, cell, date, input.today, wrapped.has(date))) {
         continue;
       }
       miss += 1;
+      missDays.push(day);
       for (const label of focusLabels(habit)) {
         focus.set(label, (focus.get(label) ?? 0) + 1);
       }
+    }
+    if (doneDays.length || missDays.length) {
+      lines.push({ id: habit.id, name: habit.name, doneDays, missDays });
     }
   }
 
@@ -146,6 +163,7 @@ export function scoreMonth(input: ScoreInput): MonthScore {
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .slice(0, 3)
       .map(([label, misses]) => ({ label, misses })),
+    lines,
   };
 }
 

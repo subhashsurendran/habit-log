@@ -41,7 +41,7 @@ Task names stay on the left. The days across the top match that month, so Februa
 - Wrap up day sits next to Add habit. It fills today's empty miss-rows with a cross and locks the habits. Marks already made stay put. Unlock habits if you still need a change.
 - Each row says "Empty day counts as a miss." That is on by default. The cell stays blank until that day has passed. Turn it off and a blank is not a miss.
 - Tags are short labels on the row. A task can have 3. A fourth tag is refused, and the ones already there stay. A stored row with more than 3 keeps the first 3. Tags do not change the cell.
-- Score is its own tab. It counts days from when you started through today. A tick, a filled timer, a finished journal, or a checklist with every line checked is done. A cross is a miss. An empty cell is a miss only when that row counts blanks, and only after the day has passed or been wrapped. Efficiency is done divided by done plus miss. With nothing to count, the screen says "No closed days yet". This week names the one tag with the most misses.
+- Score is its own tab. It counts days from when you started through today. A tick, a filled timer, a finished journal, or a checklist with every line checked is done. A cross is a miss. An empty cell is a miss only when that row counts blanks, and only after the day has passed or been wrapped. Efficiency is done divided by done plus miss. With nothing to count, the screen says "No closed days yet". Under the totals, each habit lists the days that were done and the days that were missed. This week names the one tag with the most misses.
 
 The first open of a month starts with three empty rows: Wake up, Meditation, and Reading.
 

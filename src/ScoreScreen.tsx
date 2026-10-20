@@ -83,6 +83,10 @@ function ScoreBody({
           <Text style={ui.body} testID="score-miss">
             Miss {score.miss}
           </Text>
+          <Text style={ui.section}>Done</Text>
+          <DayList lines={score.lines} kind="done" empty="None" />
+          <Text style={ui.section}>Miss</Text>
+          <DayList lines={score.lines} kind="miss" empty="None" />
         </View>
       )}
       <Text style={ui.section}>This week</Text>
@@ -95,6 +99,37 @@ function ScoreBody({
           None yet
         </Text>
       )}
+    </View>
+  );
+}
+
+function DayList({
+  lines,
+  kind,
+  empty,
+}: {
+  lines: MonthScore["lines"];
+  kind: "done" | "miss";
+  empty: string;
+}) {
+  const shown = lines.filter((line) => (kind === "done" ? line.doneDays.length : line.missDays.length));
+  if (!shown.length) {
+    return (
+      <Text style={ui.body} testID={`score-${kind}-none`}>
+        {empty}
+      </Text>
+    );
+  }
+  return (
+    <View style={ui.stack}>
+      {shown.map((line) => {
+        const days = kind === "done" ? line.doneDays : line.missDays;
+        return (
+          <Text key={line.id} style={ui.body} testID={`score-${kind}-${line.id}`}>
+            {line.name} · {days.join(", ")}
+          </Text>
+        );
+      })}
     </View>
   );
 }
