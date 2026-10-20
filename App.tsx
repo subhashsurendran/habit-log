@@ -7,6 +7,7 @@ import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
 import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
+import { IdeasScreen } from "./src/IdeasScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
 import { currentMonth, dateFor } from "./src/month";
 import { MonthScreen } from "./src/MonthScreen";
@@ -24,6 +25,7 @@ type Place =
   | { kind: "home" }
   | { kind: "today"; openAdd?: boolean }
   | { kind: "score"; monthId?: string }
+  | { kind: "ideas" }
   | { kind: "templates" }
   | { kind: "template-editor"; templateId?: string }
   | { kind: "month"; monthId: string }
@@ -63,6 +65,7 @@ function tabFor(place: Place): TabId {
   if (place.kind === "home") return "home";
   if (place.kind === "profile") return "profile";
   if (place.kind === "score") return "score";
+  if (place.kind === "ideas") return "ideas";
   if (place.kind === "templates" || place.kind === "template-editor") return "templates";
   return "today";
 }
@@ -185,7 +188,7 @@ function Shell() {
             <Text style={styles.body}>Opening…</Text>
           </View>
         ) : null}
-        {!fatal && prefs && place.kind !== "home" && place.kind !== "profile" ? (
+        {!fatal && prefs && place.kind !== "home" && place.kind !== "profile" && place.kind !== "ideas" ? (
           <ScreenNav onBack={back} onExit={exitHome} />
         ) : null}
         {!fatal && prefs && place.kind === "home" ? (
@@ -212,6 +215,7 @@ function Shell() {
           />
         ) : null}
         {!fatal && prefs && place.kind === "score" ? <ScoreScreen monthId={place.monthId} /> : null}
+        {!fatal && prefs && place.kind === "ideas" ? <IdeasScreen onGesture={onGesture} /> : null}
         {!fatal && prefs && place.kind === "profile" ? (
           <ProfileScreen
             name={prefs.name}

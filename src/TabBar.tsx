@@ -2,12 +2,13 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ink } from "./theme";
 
-export type TabId = "home" | "today" | "score" | "templates" | "profile";
+export type TabId = "home" | "today" | "score" | "ideas" | "templates" | "profile";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "home", label: "Home" },
   { id: "today", label: "Today" },
   { id: "score", label: "Score" },
+  { id: "ideas", label: "Ideas" },
   { id: "templates", label: "Templates" },
   { id: "profile", label: "Profile" },
 ];
@@ -58,6 +59,6 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   tab: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 44 },
-  label: { color: ink.quiet, fontSize: 12, fontWeight: "600" },
+  label: { color: ink.quiet, fontSize: 11, fontWeight: "600" },
   labelOn: { color: ink.green },
 });
