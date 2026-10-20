@@ -9,7 +9,7 @@
     "backgroundColor": "#16121C",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "4",
+      "buildNumber": "5",
       "infoPlist": {
         "CFBundleDisplayName": "MyDTC",
         "NSMicrophoneUsageDescription": "MyDTC uses the microphone for a journal voice note stored on this phone.",
