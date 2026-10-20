@@ -11,7 +11,7 @@ import { equalBytes } from "./aesGcm";
 import { checklistSummary, mergeCarriedItems, normalizeChecklist, parseStoredChecklist, sameChecklist } from "./checklist";
 import { OPEN_FAILED } from "./errors";
 import { parseFollowUpHours } from "./followUp";
-import { currentMonth, dateFor, daysInMonth, monthId, nextDateInSameMonth, shouldWrapDate } from "./month";
+import { currentMonth, dateFor, daysInMonth, monthId, monthTitle, nextDateInSameMonth, nextMonth, shouldWrapDate } from "./month";
 import { cleanName, entryForName, NAME_MAX, validateName } from "./names";
 import { keepPhotoFile } from "./photoFile";
 import { keepVoiceFile } from "./voiceFile";
@@ -427,6 +427,7 @@ const TEMPLATE_ROW_MAX = 40;
 export type DashboardState = {
   current: MonthState;
   past: StoredMonth[];
+  upcoming: StoredMonth[];
   templates: HabitTemplate[];
   sampleMonthId: string | null;
 };
@@ -434,10 +435,11 @@ export type DashboardState = {
 export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<DashboardState> {
   return withDbLock(async () => {
     const current = await loadMonthNow(db, now);
-    const past = await db.getAllAsync<{ id: string; year: number; month: number }>(
+    const stored = await db.getAllAsync<{ id: string; year: number; month: number }>(
       "SELECT id, year, month FROM months WHERE id != ? ORDER BY id DESC",
       current.id,
     );
+    const months = stored.map((row) => ({ id: row.id, year: Number(row.year), month: Number(row.month) }));
     const templates = await db.getAllAsync<{ id: string; name: string }>(
       "SELECT id, name FROM templates ORDER BY name COLLATE NOCASE ASC, id ASC",
     );
@@ -458,7 +460,8 @@ export function loadDashboard(db: SQLiteDatabase, now = new Date()): Promise<Das
     }
     return {
       current,
-      past: past.map((row) => ({ id: row.id, year: Number(row.year), month: Number(row.month) })),
+      past: months.filter((month) => month.id < current.id),
+      upcoming: months.filter((month) => month.id > current.id),
       templates: templates.map((template) => ({
         id: template.id,
         name: template.name,
@@ -640,7 +643,7 @@ export function startMonthFromTemplate(
   db: SQLiteDatabase,
   templateId: string,
   now = new Date(),
-): Promise<void> {
+): Promise<string> {
   return withDbLock(() => startMonthFromTemplateNow(db, templateId, now));
 }
 
@@ -686,22 +689,29 @@ async function startMonthFromTemplateNow(
   db: SQLiteDatabase,
   templateId: string,
   now: Date,
-): Promise<void> {
+): Promise<string> {
   if (!/^[A-Za-z0-9-]{8,80}$/.test(templateId)) {
     throw new Error("That list is not stored.");
   }
   const template = await db.getFirstAsync<{ id: string }>("SELECT id FROM templates WHERE id = ?", templateId);
   if (!template) throw new Error("That list is not stored.");
   const current = currentMonth(now);
-  const month = await db.getFirstAsync<{ id: string }>("SELECT id FROM months WHERE id = ?", current.id);
-  if (!month) throw new Error("This month is not ready.");
-  const marks = await db.getFirstAsync<{ n: number }>(
+  const currentMarks = await db.getFirstAsync<{ n: number }>(
     `SELECT COUNT(*) AS n FROM day_records r
      JOIN habits h ON h.id = r.habit_id
      WHERE h.month_id = ?`,
     current.id,
   );
-  if (Number(marks?.n ?? 0) > 0) throw new Error("This month already has marks.");
+  const target = Number(currentMarks?.n ?? 0) > 0 ? nextMonth(now) : current;
+  const title = monthTitle(target.year, target.month);
+  const existing = await db.getFirstAsync<{ id: string }>("SELECT id FROM months WHERE id = ?", target.id);
+  const marks = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM day_records r
+     JOIN habits h ON h.id = r.habit_id
+     WHERE h.month_id = ?`,
+    target.id,
+  );
+  if (Number(marks?.n ?? 0) > 0) throw new Error(`${title} already has marks.`);
   const rows = await db.getAllAsync<{
     name: string;
     sort_order: number;
@@ -717,7 +727,15 @@ async function startMonthFromTemplateNow(
   );
   if (!rows.length) throw new Error("That list is empty.");
   await db.withTransactionAsync(async () => {
-    await db.runAsync("DELETE FROM habits WHERE month_id = ?", current.id);
+    if (!existing) {
+      await db.runAsync(
+        "INSERT INTO months (id, year, month, locked, started_on) VALUES (?, ?, ?, 0, NULL)",
+        target.id,
+        target.year,
+        target.month,
+      );
+    }
+    await db.runAsync("DELETE FROM habits WHERE month_id = ?", target.id);
     for (const row of rows) {
       const entry = entryForName(row.name, asEntry(row.entry));
       const reminder = entry === "timer" ? reminderPair(row.reminder_hour, row.reminder_minute) : null;
@@ -727,7 +745,7 @@ async function startMonthFromTemplateNow(
            reminder_hour, reminder_minute, tags
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         createId(),
-        current.id,
+        target.id,
         row.name,
         Number(row.sort_order),
         entry,
@@ -738,6 +756,7 @@ async function startMonthFromTemplateNow(
       );
     }
   });
+  return title;
 }
 
 function templateName(raw: string): string {

@@ -109,6 +109,7 @@ export function HomeScreen({
   const open = board ? openTodayHabits(board.current) : [];
   const habitCount = board?.current.habits.length ?? 0;
   const past = board ? board.past.filter((month) => month.id !== board.sampleMonthId) : [];
+  const upcoming = board ? board.upcoming.filter((month) => month.id !== board.sampleMonthId) : [];
   const sampleMonths = board ? board.past.filter((month) => month.id === board.sampleMonthId) : [];
 
   return (
@@ -209,6 +210,25 @@ export function HomeScreen({
       >
         <Text style={ui.buttonText}>Add habit</Text>
       </Pressable>
+      {upcoming.length ? (
+        <View style={ui.stack} testID="next-months">
+          <Text style={ui.section}>Next</Text>
+          {upcoming.map((month) => (
+            <Pressable
+              key={month.id}
+              style={ui.button}
+              accessibilityLabel={monthTitle(month.year, month.month)}
+              testID={`next-${month.id}`}
+              onPress={() => {
+                onGesture();
+                onOpenMonth(month.id);
+              }}
+            >
+              <Text style={ui.buttonText}>{monthTitle(month.year, month.month)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {past.length ? (
         <View style={ui.stack} testID="past-months">
           <Text style={ui.section}>Past months</Text>

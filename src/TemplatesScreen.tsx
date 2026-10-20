@@ -10,6 +10,7 @@ import {
   type TemplateDraft,
 } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
+import { currentMonth, monthTitle, nextMonth } from "./month";
 import { entryForName, NAME_MAX, validateName } from "./names";
 import { ui } from "./theme";
 import type { Entry } from "./types";
@@ -96,11 +97,26 @@ export function TemplatesScreen({
 
   function start(templateId: string) {
     onGesture();
+    const marked = (board?.current.records.length ?? 0) > 0;
+    const target = marked ? nextMonth() : currentMonth();
+    const title = monthTitle(target.year, target.month);
     void openAppDatabase()
       .then((database) => startMonthFromTemplate(database, templateId))
-      .then(() => onOpenToday())
+      .then((ready) => reload().then((next) => ({ next, ready })))
+      .then(({ next, ready }) => {
+        setBoard(next);
+        setBanner(
+          ready === title && marked
+            ? `${ready} is ready. This month is unchanged.`
+            : `${ready} is ready.`,
+        );
+      })
       .catch((error: unknown) => setBanner(errorText(error)));
   }
+
+  const markedMonth = (board?.current.records.length ?? 0) > 0;
+  const targetMonth = markedMonth ? nextMonth() : currentMonth();
+  const targetTitle = monthTitle(targetMonth.year, targetMonth.month);
 
   return (
     <ScrollView
@@ -205,7 +221,7 @@ export function TemplatesScreen({
         <Pressable
           key={template.id}
           style={ui.card}
-          accessibilityLabel={`Start ${template.name}`}
+          accessibilityLabel={`Use for ${targetTitle}`}
           testID={`template-start-${template.id}`}
           onPress={() => start(template.id)}
         >
@@ -215,7 +231,7 @@ export function TemplatesScreen({
               {habit.name} · {kindLabel(habit.entry)}
             </Text>
           ))}
-          <Text style={ui.quiet}>Start this month</Text>
+          <Text style={ui.quiet}>Use for {targetTitle}</Text>
         </Pressable>
       ))}
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}

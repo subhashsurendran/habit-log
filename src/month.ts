@@ -28,6 +28,15 @@ export function currentMonth(now = new Date()): { year: number; month: number; i
   return { year, month, id: monthId(year, month) };
 }
 
+/** The calendar month after this one. December rolls into January. */
+export function nextMonth(now = new Date()): { year: number; month: number; id: string } {
+  const current = currentMonth(now);
+  if (current.month === 12) {
+    return { year: current.year + 1, month: 1, id: monthId(current.year + 1, 1) };
+  }
+  return { year: current.year, month: current.month + 1, id: monthId(current.year, current.month + 1) };
+}
+
 export function dateFor(year: number, month: number, day: number): string {
   return `${monthId(year, month)}-${String(day).padStart(2, "0")}`;
 }
