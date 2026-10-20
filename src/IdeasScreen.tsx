@@ -17,7 +17,10 @@ function kindLabel(entry: Entry): string {
 export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
   const [board, setBoard] = useState<DashboardState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
 
   function reload() {
     return openAppDatabase().then((database) => loadDashboard(database));
@@ -49,7 +52,7 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
         setBoard(next);
         setBanner(`${item.name} is on this month.`);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   const names = board?.current.habits.map((habit) => habit.name) ?? [];
@@ -75,7 +78,7 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
       {gist ? (
         <View style={ui.stack}>
           <Text style={ui.section}>Today's gist</Text>
-          <IdeaCard item={gist} names={names} onAdd={add} />
+          <IdeaCard item={gist} names={names} onAdd={add} live />
         </View>
       ) : null}
       {rest.length ? (
@@ -86,7 +89,7 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
           ))}
         </View>
       ) : null}
-      {banner ? <Text style={ui.banner}>{banner}</Text> : null}
+      {banner ? <Text style={banner.failed ? ui.banner : ui.note}>{banner.text}</Text> : null}
     </ScrollView>
   );
 }
@@ -95,14 +98,16 @@ function IdeaCard({
   item,
   names,
   onAdd,
+  live = false,
 }: {
   item: HabitSuggestion;
   names: readonly string[];
   onAdd: (item: HabitSuggestion) => void;
+  live?: boolean;
 }) {
   const kept = suggestionsNotKept(names).every((idea) => idea.name !== item.name);
   return (
-    <View style={ui.card} testID={`idea-${item.name.toLowerCase().replace(/\s+/g, "-")}`}>
+    <View style={live ? ui.cardLive : ui.card} testID={`idea-${item.name.toLowerCase().replace(/\s+/g, "-")}`}>
       <Text style={ui.body}>{item.name}</Text>
       <Text style={ui.quiet}>
         {item.line} {kindLabel(item.entry)}.

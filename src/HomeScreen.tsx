@@ -21,6 +21,7 @@ import { greetingLine } from "./greet";
 import { dateFor, monthTitle } from "./month";
 import { validateCallName } from "./names";
 import { syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
+import { playNight } from "./cues";
 import { openTodayHabits, scoreStoredMonth, type OpenHabit } from "./score";
 import { suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
 import { ui } from "./theme";
@@ -45,7 +46,10 @@ export function HomeScreen({
   const [draft, setDraft] = useState("");
   const [board, setBoard] = useState<DashboardState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
   const [suggestionShift, setSuggestionShift] = useState(0);
 
   useEffect(() => {
@@ -71,7 +75,7 @@ export function HomeScreen({
     try {
       next = validateCallName(draft);
     } catch (error: unknown) {
-      setBanner(errorText(error));
+      setBanner(errorText(error), true);
       return;
     }
     void openAppDatabase()
@@ -81,7 +85,7 @@ export function HomeScreen({
         setDraft("");
         setBanner(null);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function markOpen(habit: OpenHabit) {
@@ -97,7 +101,7 @@ export function HomeScreen({
       .then(async (database) => {
         const entry = await markDoneToday(database, monthId, habit.id, today);
         if (!entry) {
-          setBanner("Add a line on Today first.");
+          setBanner("Add a line on Today first.", true);
           return;
         }
         const result = await syncFollowUp({
@@ -107,10 +111,10 @@ export function HomeScreen({
           hours: habit.followUpHours,
           completed: true,
         });
-        setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null);
+        setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null, result === "unavailable");
         setBoard(await loadDashboard(database));
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function addSuggestion(item: HabitSuggestion) {
@@ -124,7 +128,7 @@ export function HomeScreen({
         setBoard(next);
         setBanner(`${item.name} is on this month.`);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function closeNight() {
@@ -156,10 +160,11 @@ export function HomeScreen({
       })
       .then((next) => {
         if (!next) return;
+        playNight();
         setBoard(next);
-        setBanner("Tonight is closed.");
+        setBanner(null);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   const score = board ? scoreStoredMonth(board.current) : null;
@@ -227,38 +232,37 @@ export function HomeScreen({
           Tonight is closed.
         </Text>
       ) : null}
-      {board && habitCount > 0 && open.length === 0 && !nightClosed ? (
-        <Text style={ui.quiet} testID="done-for-today">
-          Done for today.
-        </Text>
-      ) : null}
-      {!nightClosed && open.length ? (
-        <View style={ui.stack} testID="open-today">
-          <Text style={ui.section}>
-            {open.length} still open today
-          </Text>
-          {open.map((habit) => {
-            const marksHere = habit.entry === "tick" || habit.entry === "timer";
-            return (
-              <View key={habit.id} style={ui.row}>
-                <Text style={[ui.body, { flex: 1 }]}>{habit.name}</Text>
-                <Pressable
-                  style={ui.button}
-                  accessibilityLabel={marksHere ? `Done, ${habit.name}` : `Open ${habit.name}`}
-                  testID={`open-done-${habit.id}`}
-                  onPress={() => markOpen(habit)}
-                >
-                  <Text style={ui.buttonText}>{marksHere ? "Done" : "Open"}</Text>
-                </Pressable>
-              </View>
-            );
-          })}
+      {!nightClosed && board && habitCount > 0 ? (
+        <View style={ui.cardLive} testID="tonight">
+          {open.length === 0 ? (
+            <Text style={ui.quiet} testID="done-for-today">
+              Done for today.
+            </Text>
+          ) : (
+            <View style={ui.stack} testID="open-today">
+              <Text style={ui.section}>{open.length} still open today</Text>
+              {open.map((habit) => {
+                const marksHere = habit.entry === "tick" || habit.entry === "timer";
+                return (
+                  <View key={habit.id} style={ui.row}>
+                    <Text style={[ui.body, { flex: 1 }]}>{habit.name}</Text>
+                    <Pressable
+                      style={ui.button}
+                      accessibilityLabel={marksHere ? `Done, ${habit.name}` : `Open ${habit.name}`}
+                      testID={`open-done-${habit.id}`}
+                      onPress={() => markOpen(habit)}
+                    >
+                      <Text style={ui.buttonText}>{marksHere ? "Done" : "Open"}</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+          <Pressable style={ui.primary} testID="home-wrap" accessibilityLabel="Wrap up day" onPress={closeNight}>
+            <Text style={ui.primaryText}>Wrap up day</Text>
+          </Pressable>
         </View>
-      ) : null}
-      {board && habitCount > 0 && !nightClosed ? (
-        <Pressable style={ui.primary} testID="home-wrap" accessibilityLabel="Wrap up day" onPress={closeNight}>
-          <Text style={ui.primaryText}>Wrap up day</Text>
-        </Pressable>
       ) : null}
       <Pressable
         style={ui.primary}
@@ -350,7 +354,7 @@ export function HomeScreen({
           ))}
         </View>
       ) : null}
-      {banner ? <Text style={ui.banner}>{banner}</Text> : null}
+      {banner ? <Text style={banner.failed ? ui.banner : ui.note}>{banner.text}</Text> : null}
     </ScrollView>
   );
 }

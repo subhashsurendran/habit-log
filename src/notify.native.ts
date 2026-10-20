@@ -92,7 +92,7 @@ export async function syncFollowUp(request: FollowUpRequest): Promise<NotifyResu
   try {
     if (!(await alertsAllowed())) return "unavailable";
     await ensureChannel();
-    const when = new Date(Date.now() + request.hours * 60 * 60 * 1000);
+    const seconds = Math.max(1, Math.round(request.hours * 60 * 60));
     await Notifications.scheduleNotificationAsync({
       identifier: followUpId(request.habitId, request.date),
       content: {
@@ -100,8 +100,9 @@ export async function syncFollowUp(request: FollowUpRequest): Promise<NotifyResu
         body: request.habitName,
       },
       trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: when,
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds,
+        repeats: false,
         channelId: CHANNEL,
       },
     });
@@ -133,8 +134,9 @@ export async function syncDailyReminder(request: ReminderRequest): Promise<Notif
           sound: true,
         },
         trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: when,
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: Math.max(1, Math.round((when.getTime() - Date.now()) / 1000)),
+          repeats: false,
           channelId: CHANNEL,
         },
       });
@@ -189,8 +191,9 @@ export async function syncEveningWrap(
           sound: true,
         },
         trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: when,
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+          seconds: Math.max(1, Math.round((when.getTime() - Date.now()) / 1000)),
+          repeats: false,
           channelId: CHANNEL,
         },
       });

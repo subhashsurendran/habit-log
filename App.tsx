@@ -4,6 +4,7 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
+import { setCueSound } from "./src/cues";
 import { DISPLAY_NAME_KEY, EVENING_HOUR_KEY, EVENING_MINUTE_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
@@ -127,6 +128,7 @@ function Shell() {
   }, []);
 
   mutedRef.current = prefs?.muted ?? true;
+  setCueSound(!(prefs?.muted ?? true));
 
   const bindBack = useCallback((handler: (() => boolean) | null) => {
     sheetBack.current = handler;

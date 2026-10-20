@@ -47,7 +47,10 @@ export function TemplatesScreen({
 }) {
   const [board, setBoard] = useState<DashboardState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
   const [name, setName] = useState("");
   const [rows, setRows] = useState<TemplateDraft[]>([]);
   const [habitName, setHabitName] = useState("");
@@ -79,7 +82,7 @@ export function TemplatesScreen({
     if (!editing || !templateId || !board || loadedId === templateId) return;
     const template = board.templates.find((item) => item.id === templateId);
     if (!template) {
-      setBanner("That list is not stored.");
+      setBanner("That list is not stored.", true);
       setLoadedId(templateId);
       return;
     }
@@ -97,7 +100,7 @@ export function TemplatesScreen({
       setHabitName("");
       setBanner(null);
     } catch (error: unknown) {
-      setBanner(errorText(error));
+      setBanner(errorText(error), true);
     }
   }
 
@@ -119,7 +122,7 @@ export function TemplatesScreen({
         setBanner(null);
         onDone();
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function remove(templateIdToDelete: string) {
@@ -137,7 +140,7 @@ export function TemplatesScreen({
         setConfirmDeleteId(null);
         setBanner("Deleted.");
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function start(templateId: string) {
@@ -158,7 +161,7 @@ export function TemplatesScreen({
               : `${ready.title} is ready.`,
         );
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function unset(templateId: string) {
@@ -170,7 +173,7 @@ export function TemplatesScreen({
         setBoard(next);
         setBanner(`${ready} is unset.`);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   const markedMonth = (board?.current.records.length ?? 0) > 0;
@@ -349,7 +352,7 @@ export function TemplatesScreen({
           </View>
         );
       })}
-      {banner ? <Text style={ui.banner}>{banner}</Text> : null}
+      {banner ? <Text style={banner.failed ? ui.banner : ui.note}>{banner.text}</Text> : null}
     </ScrollView>
   );
 }

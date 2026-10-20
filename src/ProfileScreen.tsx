@@ -25,7 +25,10 @@ export function ProfileScreen({
   onStop: () => void;
 }) {
   const [draft, setDraft] = useState(name ?? "");
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
 
   useEffect(() => {
     setDraft(name ?? "");
@@ -37,7 +40,7 @@ export function ProfileScreen({
     try {
       next = validateCallName(draft);
     } catch (error: unknown) {
-      setBanner(errorText(error));
+      setBanner(errorText(error), true);
       return;
     }
     void openAppDatabase()
@@ -46,7 +49,7 @@ export function ProfileScreen({
         onName(next);
         setBanner(null);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function toggleSound() {
@@ -60,7 +63,7 @@ export function ProfileScreen({
         onMuted(!next);
         if (next) onStart();
         else onStop();
-        setBanner(errorText(error));
+        setBanner(errorText(error), true);
       });
   }
 
@@ -103,7 +106,7 @@ export function ProfileScreen({
       >
         <Text style={ui.buttonText}>{muted ? "Sound off" : "Sound on"}</Text>
       </Pressable>
-      {banner ? <Text style={ui.banner}>{banner}</Text> : null}
+      {banner ? <Text style={banner.failed ? ui.banner : ui.note}>{banner.text}</Text> : null}
     </ScrollView>
   );
 }

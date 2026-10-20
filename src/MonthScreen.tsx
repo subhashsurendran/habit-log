@@ -77,6 +77,7 @@ import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
+import { playNight, playTick } from "./cues";
 import { countsAsMiss, shownMark } from "./tally";
 import { easeSentence, scoreStoredMonth, weeklyEase } from "./score";
 import { reminderNote } from "./reminderWhen";
@@ -139,7 +140,10 @@ export function MonthScreen({
   const revealedKey = useRef("");
   const [month, setMonth] = useState<MonthState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
   const [addOpen, setAddOpen] = useState(openAdd);
   const [timeEdit, setTimeEdit] = useState<
     { mode: "cell"; habit: Habit; day: number } | { mode: "reminder"; habit: Habit } | null
@@ -217,7 +221,7 @@ export function MonthScreen({
       () => undefined,
     );
     return run.catch((error: unknown) => {
-      setBanner(errorText(error));
+      setBanner(errorText(error), true);
       throw error;
     });
   }
@@ -320,6 +324,7 @@ export function MonthScreen({
                 items,
               ),
             );
+            playTick();
             setChecklistEdit(null);
           }}
         />
@@ -468,6 +473,7 @@ export function MonthScreen({
                               month.month,
                               day,
                             );
+                            if (outcome === "tick") playTick();
                             if (outcome === "tick" || outcome === "cross") {
                               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
                                 () => undefined,
@@ -481,7 +487,7 @@ export function MonthScreen({
                               completed: outcome === "tick",
                             });
                             if (result === "unavailable") {
-                              setBanner("Saved. The notification was not scheduled.");
+                              setBanner("Saved. The notification was not scheduled.", true);
                             }
                           }).catch(() => undefined);
                         }}
@@ -572,7 +578,7 @@ export function MonthScreen({
                     onPress={() => {
                       const name = listBackupNames()[0];
                       if (!name) {
-                        setBanner("No backup is saved on this phone.");
+                        setBanner("No backup is saved on this phone.", true);
                         setRestoreArmed(false);
                         return;
                       }
@@ -682,6 +688,7 @@ export function MonthScreen({
                       }
                     })
                       .then(() => {
+                        playNight();
                         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
                       })
                       .catch(() => undefined);
@@ -718,7 +725,9 @@ export function MonthScreen({
             <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
           </Pressable>
         </View>
-        {banner ? <Text style={styles.banner}>{banner}</Text> : null}
+        {banner ? (
+          <Text style={banner.failed ? styles.banner : styles.saved}>{banner.text}</Text>
+        ) : null}
       </View>
 
       {addOpen ? (
@@ -790,7 +799,7 @@ export function MonthScreen({
                 todayWrapped: monthWrappedToday(month),
               });
               if (editingHabit.reminderHour != null && result === "unavailable") {
-                setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
+                setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
               }
             }
             setRenameTarget(null);
@@ -879,7 +888,7 @@ export function MonthScreen({
                   setBanner("Saved on this device. The browser will not notify you.");
                 }
                 if (result === "unavailable") {
-                  setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
+                  setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
                 }
               });
               setTimeEdit(null);
@@ -896,6 +905,7 @@ export function MonthScreen({
                 hour,
                 minute,
               );
+              playTick();
               const follow = await syncFollowUp({
                 habitId: timeEdit.habit.id,
                 habitName: timeEdit.habit.name,
@@ -916,10 +926,10 @@ export function MonthScreen({
                 });
                 if (result === "scheduled") setBanner(reminderNote(hour, minute, now, todayWrapped));
                 else if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
-                else setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
+                else setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
                 return;
               }
-              if (follow === "unavailable") setBanner("Saved. The notification was not scheduled.");
+              if (follow === "unavailable") setBanner("Saved. The notification was not scheduled.", true);
             });
             setTimeEdit(null);
           }}
@@ -984,6 +994,7 @@ export function MonthScreen({
                 voicePath,
               ),
             );
+            playTick();
             setJournalEdit(null);
           }}
         />
@@ -1027,7 +1038,7 @@ export function MonthScreen({
             const result = await syncEveningWrap(hour, minute, monthWrappedToday(month));
             setEvening({ hour, minute });
             setEveningOpen(false);
-            if (result === "unavailable") setBanner("Saved. The notification was not scheduled.");
+            if (result === "unavailable") setBanner("Saved. The notification was not scheduled.", true);
             if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
           }}
           onClear={async () => {
@@ -2329,6 +2340,7 @@ const styles = StyleSheet.create({
   quiet: { marginTop: 8, color: "#8E819C", fontSize: 13, lineHeight: 18 },
   ask: { marginTop: 12, color: "#F6F1FF", fontSize: 16, lineHeight: 22, fontWeight: "700" },
   banner: { marginTop: 8, color: "#FF8AA0", fontSize: 14 },
+  saved: { marginTop: 8, color: "#E7DCF8", fontSize: 14 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 0 },
   search: {
     height: 44,
