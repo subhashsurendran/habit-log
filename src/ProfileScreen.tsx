@@ -3,6 +3,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, writeSetting } from "./db";
 import { errorText } from "./errors";
+import { openWriteToUs } from "./feedback";
 import { validateCallName } from "./names";
 import { buyPremiumYear, loadPremiumOffer, type PremiumOffer } from "./premium";
 import { ui } from "./theme";
@@ -78,6 +79,7 @@ export function ProfileScreen({
         {name ?? "Profile"}
       </Text>
       <PremiumCard notice={banner} onGesture={onGesture} />
+      <WriteToUs onGesture={onGesture} />
       <Text style={ui.section}>Name</Text>
       <TextInput
         testID="profile-name"
@@ -107,6 +109,32 @@ export function ProfileScreen({
         <Text style={ui.buttonText}>{muted ? "Sound off" : "Sound on"}</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+function WriteToUs({ onGesture }: { onGesture: () => void }) {
+  const [missed, setMissed] = useState(false);
+
+  function write() {
+    onGesture();
+    setMissed(false);
+    void openWriteToUs().catch(() => setMissed(true));
+  }
+
+  return (
+    <View style={ui.card} testID="write-to-us">
+      <Text style={ui.section}>Write to us</Text>
+      <Text style={ui.body}>A note or an idea. The habit log stays on this phone.</Text>
+      <Pressable
+        style={ui.button}
+        testID="write-to-us-button"
+        accessibilityLabel="Write to us"
+        onPress={write}
+      >
+        <Text style={ui.buttonText}>Write to us</Text>
+      </Pressable>
+      {missed ? <Text style={ui.banner}>Mail could not open.</Text> : null}
+    </View>
   );
 }
 
