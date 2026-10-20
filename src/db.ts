@@ -1997,6 +1997,7 @@ async function restoreBackupNow(db: SQLiteDatabase, name: string): Promise<void>
   const body = asRow(parsed);
   if (!body || body.version !== 1) throw new Error("That backup could not be read.");
   const months = readMonths(body.months);
+  if (!months.length) throw new Error("That backup could not be read.");
   const habits = readHabits(body.habits, new Set(months.map((month) => month.id)));
   const habitIds = new Set(habits.map((habit) => habit.id));
   const records = readRecords(body.records, habitIds, new Set(months.map((month) => month.id)));

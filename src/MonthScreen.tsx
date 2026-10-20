@@ -483,26 +483,29 @@ export function MonthScreen({
                 <Text style={styles.buttonText}>Save backup</Text>
               </Pressable>
               {restoreArmed ? (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Confirm restore"
-                  testID="confirm-restore"
-                  onPress={() => {
-                    const name = listBackupNames()[0];
-                    if (!name) {
-                      setBanner("No backup is saved on this phone.");
-                      setRestoreArmed(false);
-                      return;
-                    }
-                    void enqueue(async (database) => {
-                      await restoreBackup(database, name);
-                      setBanner("Restored on this phone.");
-                      setRestoreArmed(false);
-                    }).catch(() => undefined);
-                  }}
-                >
-                  <Text style={styles.buttonText}>Confirm restore</Text>
-                </Pressable>
+                <>
+                  <Text style={styles.quiet}>This replaces the log on this phone.</Text>
+                  <Pressable
+                    style={styles.button}
+                    accessibilityLabel="Confirm restore"
+                    testID="confirm-restore"
+                    onPress={() => {
+                      const name = listBackupNames()[0];
+                      if (!name) {
+                        setBanner("No backup is saved on this phone.");
+                        setRestoreArmed(false);
+                        return;
+                      }
+                      void enqueue(async (database) => {
+                        await restoreBackup(database, name);
+                        setBanner("Restored on this phone.");
+                        setRestoreArmed(false);
+                      }).catch(() => undefined);
+                    }}
+                  >
+                    <Text style={styles.buttonText}>Confirm restore</Text>
+                  </Pressable>
+                </>
               ) : (
                 <Pressable
                   style={styles.button}
