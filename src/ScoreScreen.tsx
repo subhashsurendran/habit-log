@@ -119,7 +119,11 @@ function compactDays(days: readonly number[]): string {
     start = day;
     previous = day;
   }
-  return parts.join(", ");
+  if (parts.length <= 3) return parts.join(", ");
+  const first = days[0];
+  const last = days[days.length - 1];
+  if (first == null || last == null || first === last) return parts.join(", ");
+  return `scattered ${first}-${last}`;
 }
 
 function DayList({
