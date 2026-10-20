@@ -103,6 +103,25 @@ function ScoreBody({
   );
 }
 
+function compactDays(days: readonly number[]): string {
+  if (!days.length) return "";
+  const parts: string[] = [];
+  let start = days[0] ?? 0;
+  let previous = start;
+  for (let index = 1; index <= days.length; index += 1) {
+    const day = days[index];
+    if (day === previous + 1) {
+      previous = day;
+      continue;
+    }
+    parts.push(start === previous ? String(start) : `${start}-${previous}`);
+    if (day == null) break;
+    start = day;
+    previous = day;
+  }
+  return parts.join(", ");
+}
+
 function DayList({
   lines,
   kind,
@@ -126,7 +145,7 @@ function DayList({
         const days = kind === "done" ? line.doneDays : line.missDays;
         return (
           <Text key={line.id} style={ui.body} testID={`score-${kind}-${line.id}`}>
-            {line.name} · {days.join(", ")}
+            {line.name} · {days.length} · {compactDays(days)}
           </Text>
         );
       })}
