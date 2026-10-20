@@ -5,6 +5,7 @@ import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, writeSetting } from
 import { errorText } from "./errors";
 import { validateCallName } from "./names";
 import { buyPremiumYear, loadPremiumOffer, type PremiumOffer } from "./premium";
+import { FREE_WITH, YEAR_ADDS } from "./premiumPrice";
 import { ui } from "./theme";
 
 export function ProfileScreen({
@@ -74,6 +75,7 @@ export function ProfileScreen({
       <Text style={ui.title} accessibilityRole="header">
         {name ?? "Profile"}
       </Text>
+      <Text style={ui.section}>Plan</Text>
       <PremiumCard onGesture={onGesture} />
       <Text style={ui.section}>Name</Text>
       <TextInput
@@ -139,13 +141,25 @@ function PremiumCard({ onGesture }: { onGesture: () => void }) {
 
   return (
     <View style={ui.card} testID="premium-card">
-      <Text style={ui.section}>Premium</Text>
+      <Text style={ui.body} testID="plan-status">
+        {offer?.owned ? "Premium" : "Free"}
+      </Text>
+      <Text style={ui.quiet}>Included</Text>
+      {FREE_WITH.map((item) => (
+        <Text key={item} style={ui.body}>
+          {item}
+        </Text>
+      ))}
+      <Text style={ui.quiet}>The year adds</Text>
       <Text style={ui.percent} testID="premium-price">
         {price}
       </Text>
-      <Text style={ui.body}>
-        Today’s grid stays free. A year keeps older months and the later insights. Apple bills it.
-      </Text>
+      {YEAR_ADDS.map((item) => (
+        <Text key={item} style={ui.body}>
+          {item}
+        </Text>
+      ))}
+      <Text style={ui.body}>Apple bills the year. The grid you use today stays free.</Text>
       {offer?.owned ? (
         <Text style={ui.body} testID="premium-on">
           Premium is on.
@@ -168,7 +182,7 @@ function PremiumCard({ onGesture }: { onGesture: () => void }) {
       ) : null}
       {offer && !offer.ready && !offer.owned ? (
         <Text style={ui.quiet} testID="premium-waiting">
-          Not open for payment yet. It needs a paid Apple Developer membership and the product in App Store Connect.
+          Not open for payment yet. A paid Apple Developer membership and this product in App Store Connect have to exist before anyone can be charged.
         </Text>
       ) : null}
       {note ? <Text style={ui.banner}>{note}</Text> : null}

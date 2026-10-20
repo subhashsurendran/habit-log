@@ -6,3 +6,13 @@ export function listedYearPrice(regionOrStorefront: string | null | undefined): 
 }
 
 export const PREMIUM_PRODUCT_ID = "mydtc.premium.yearly";
+
+/** Stays available with or without a subscription. */
+export const FREE_WITH = [
+  "This month's grid",
+  "Reminders on this phone",
+  "A backup kept on this phone",
+] as const;
+
+/** Added only after Apple confirms the year. Not switched on in this build. */
+export const YEAR_ADDS = ["Older months", "The later insights"] as const;
