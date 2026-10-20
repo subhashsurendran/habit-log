@@ -6,6 +6,7 @@ import {
   loadDashboard,
   openAppDatabase,
   startMonthFromTemplate,
+  unsetMonthTemplate,
   type DashboardState,
   type TemplateDraft,
 } from "./db";
@@ -116,6 +117,18 @@ export function TemplatesScreen({
       .catch((error: unknown) => setBanner(errorText(error)));
   }
 
+  function unset(templateId: string) {
+    onGesture();
+    void openAppDatabase()
+      .then((database) => unsetMonthTemplate(database, templateId))
+      .then((ready) => reload().then((next) => ({ next, ready })))
+      .then(({ next, ready }) => {
+        setBoard(next);
+        setBanner(`${ready} is unset.`);
+      })
+      .catch((error: unknown) => setBanner(errorText(error)));
+  }
+
   const markedMonth = (board?.current.records.length ?? 0) > 0;
   const targetMonth = markedMonth ? nextMonth() : currentMonth();
   const targetTitle = monthTitle(targetMonth.year, targetMonth.month);
@@ -222,12 +235,10 @@ export function TemplatesScreen({
       {board?.templates.map((template) => {
         const setForMonth = board.preparedTemplateId === template.id;
         return (
-          <Pressable
+          <View
             key={template.id}
             style={[ui.card, setForMonth && { borderColor: "#3DDC97" }]}
-            accessibilityLabel={setForMonth ? `Set for ${targetTitle}` : `Use for ${targetTitle}`}
-            testID={`template-start-${template.id}`}
-            onPress={() => start(template.id)}
+            testID={`template-${template.id}`}
           >
             <Text style={ui.body}>{template.name}</Text>
             {template.habits.map((habit, index) => (
@@ -235,8 +246,27 @@ export function TemplatesScreen({
                 {habit.name} · {kindLabel(habit.entry)}
               </Text>
             ))}
-            <Text style={ui.quiet}>{setForMonth ? `Set for ${targetTitle}` : `Use for ${targetTitle}`}</Text>
-          </Pressable>
+            <Text style={ui.quiet}>{setForMonth ? `Set for ${targetTitle}` : `Not set for ${targetTitle}`}</Text>
+            {setForMonth ? (
+              <Pressable
+                style={ui.button}
+                accessibilityLabel="Unset"
+                testID={`template-unset-${template.id}`}
+                onPress={() => unset(template.id)}
+              >
+                <Text style={ui.buttonText}>Unset</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={ui.button}
+                accessibilityLabel={`Set for ${targetTitle}`}
+                testID={`template-start-${template.id}`}
+                onPress={() => start(template.id)}
+              >
+                <Text style={ui.buttonText}>Set</Text>
+              </Pressable>
+            )}
+          </View>
         );
       })}
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}

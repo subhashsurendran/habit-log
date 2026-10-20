@@ -645,6 +645,46 @@ export function createHabitTemplate(
   return withDbLock(() => createHabitTemplateNow(db, rawName, drafts));
 }
 
+export function unsetMonthTemplate(db: SQLiteDatabase, templateId: string, now = new Date()): Promise<string> {
+  return withDbLock(() => unsetMonthTemplateNow(db, templateId, now));
+}
+
+async function unsetMonthTemplateNow(db: SQLiteDatabase, templateId: string, now: Date): Promise<string> {
+  if (!/^[A-Za-z0-9-]{8,80}$/.test(templateId)) throw new Error("That list is not stored.");
+  const template = await db.getFirstAsync<{ id: string }>("SELECT id FROM templates WHERE id = ?", templateId);
+  if (!template) throw new Error("That list is not stored.");
+  const current = currentMonth(now);
+  const currentMarks = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM day_records r
+     JOIN habits h ON h.id = r.habit_id
+     WHERE h.month_id = ?`,
+    current.id,
+  );
+  const target = Number(currentMarks?.n ?? 0) > 0 ? nextMonth(now) : current;
+  const title = monthTitle(target.year, target.month);
+  const key = preparedKey(target.id);
+  const saved = key
+    ? await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = ?", key)
+    : null;
+  const matches = await sameHabitsAsTemplate(db, target.id, templateId);
+  if (saved?.value !== templateId && !matches) throw new Error("That list is not set.");
+  const marks = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM day_records r
+     JOIN habits h ON h.id = r.habit_id
+     WHERE h.month_id = ?`,
+    target.id,
+  );
+  if (Number(marks?.n ?? 0) > 0) throw new Error(`${title} already has marks.`);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("DELETE FROM habits WHERE month_id = ?", target.id);
+    if (target.id !== current.id) {
+      await db.runAsync("DELETE FROM months WHERE id = ?", target.id);
+    }
+    if (key) await db.runAsync("DELETE FROM settings WHERE key = ?", key);
+  });
+  return title;
+}
+
 export function startMonthFromTemplate(
   db: SQLiteDatabase,
   templateId: string,
