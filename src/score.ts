@@ -1,4 +1,5 @@
 import { dateFor, daysInMonth } from "./month";
+import { smallerLine } from "./suggestions";
 import { shownMark } from "./tally";
 import type { CheckItem, Entry, MonthState } from "./types";
 
@@ -97,7 +98,7 @@ function isMiss(
   return closed && blankCountsAsMiss;
 }
 
-function focusLabels(habit: ScoreHabit): string[] {
+function focusLabels(habit: { name: string; tags: readonly string[] }): string[] {
   const tags = habit.tags.filter((tag) => tag.trim().length > 0);
   if (tags.length) return [...tags];
   const name = habit.name.trim();
@@ -197,7 +198,7 @@ function weekStart(today: string): string {
   return dateFor(date.getFullYear(), date.getMonth() + 1, date.getDate());
 }
 
-/** The one tag with the most misses in the current calendar week. */
+/** The one label to watch this week. A tag wins on that row. The habit name is used when the row has no tag. */
 export function weeklyFocusTag(
   month: MonthState,
   now = new Date(),
@@ -209,15 +210,17 @@ export function weeklyFocusTag(
   for (const record of month.records) byCell.set(`${record.habitId}|${record.date}`, record);
   const counts = new Map<string, number>();
   for (const habit of month.habits) {
-    if (!habit.tags.length) continue;
+    let misses = 0;
     for (let day = 1; day <= daysInMonth(month.year, month.month); day += 1) {
       const date = dateFor(month.year, month.month, day);
       if (date < start || date > today) continue;
       if (!inScoreRange(date, month.startedOn, today)) continue;
       const cell = byCell.get(`${habit.id}|${date}`);
       if (!isMiss(habit.entry, habit.blankCountsAsMiss, cell, date, today, wrapped.has(date))) continue;
-      for (const tag of habit.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+      misses += 1;
     }
+    if (misses === 0) continue;
+    for (const label of focusLabels(habit)) counts.set(label, (counts.get(label) ?? 0) + misses);
   }
   let best: { label: string; misses: number } | null = null;
   for (const [label, misses] of counts) {
@@ -226,4 +229,38 @@ export function weeklyFocusTag(
     }
   }
   return best;
+}
+
+/** The habit with the most misses this week, and a smaller version for the coming days. */
+export function weeklyEase(
+  month: MonthState,
+  now = new Date(),
+): { name: string; smaller: string } | null {
+  const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const start = weekStart(today);
+  const wrapped = new Set(month.wrappedDates);
+  const byCell = new Map<string, ScoreRecord>();
+  for (const record of month.records) byCell.set(`${record.habitId}|${record.date}`, record);
+  let best: { name: string; misses: number } | null = null;
+  for (const habit of month.habits) {
+    let misses = 0;
+    for (let day = 1; day <= daysInMonth(month.year, month.month); day += 1) {
+      const date = dateFor(month.year, month.month, day);
+      if (date < start || date > today) continue;
+      if (!inScoreRange(date, month.startedOn, today)) continue;
+      const cell = byCell.get(`${habit.id}|${date}`);
+      if (!isMiss(habit.entry, habit.blankCountsAsMiss, cell, date, today, wrapped.has(date))) continue;
+      misses += 1;
+    }
+    if (misses === 0) continue;
+    if (!best || misses > best.misses || (misses === best.misses && habit.name.localeCompare(best.name) < 0)) {
+      best = { name: habit.name, misses };
+    }
+  }
+  if (!best) return null;
+  return { name: best.name, smaller: smallerLine(best.name) };
+}
+
+export function easeSentence(ease: { name: string; smaller: string }): string {
+  return `${ease.name} is the one to make easier. ${ease.smaller}`;
 }

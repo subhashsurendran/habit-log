@@ -4,14 +4,16 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
-import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, ensureSampleSeptember, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
+import { setCueSound } from "./src/cues";
+import { DISPLAY_NAME_KEY, EVENING_HOUR_KEY, EVENING_MINUTE_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
+import { IdeasScreen } from "./src/IdeasScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
-import { currentMonth } from "./src/month";
+import { currentMonth, dateFor } from "./src/month";
 import { MonthScreen } from "./src/MonthScreen";
 import { callNameOrNull } from "./src/names";
-import { syncDailyReminder } from "./src/notify";
+import { syncDailyReminder, syncEveningWrap } from "./src/notify";
 import { ScoreScreen } from "./src/ScoreScreen";
 import { ScreenNav } from "./src/ScreenNav";
 import { TabBar, type TabId } from "./src/TabBar";
@@ -24,8 +26,9 @@ type Place =
   | { kind: "home" }
   | { kind: "today"; openAdd?: boolean }
   | { kind: "score"; monthId?: string }
+  | { kind: "ideas" }
   | { kind: "templates" }
-  | { kind: "template-editor" }
+  | { kind: "template-editor"; templateId?: string }
   | { kind: "month"; monthId: string }
   | { kind: "profile" };
 
@@ -63,13 +66,13 @@ function tabFor(place: Place): TabId {
   if (place.kind === "home") return "home";
   if (place.kind === "profile") return "profile";
   if (place.kind === "score") return "score";
+  if (place.kind === "ideas") return "ideas";
   if (place.kind === "templates" || place.kind === "template-editor") return "templates";
   return "today";
 }
 
 function Shell() {
   const loop = useRef<CalmLoopHandle>(null);
-  const mutedRef = useRef(true);
   const sheetBack = useRef<(() => boolean) | null>(null);
   const [stack, setStack] = useState<Place[]>([{ kind: "home" }]);
   const [prefs, setPrefs] = useState<Prefs | null>(null);
@@ -82,12 +85,15 @@ function Shell() {
       .then(async (database) => {
         const stored = await readSetting(database, DISPLAY_NAME_KEY);
         const flag = await readSetting(database, SOUND_MUTED_KEY);
-        if (flag !== "1") await writeSetting(database, SOUND_MUTED_KEY, "1");
+        const muted = flag !== "0";
+        if (flag == null) await writeSetting(database, SOUND_MUTED_KEY, "1");
         const month = await loadMonth(database);
-        await ensureSampleSeptember(database);
         if (!live) return;
-        setPrefs({ name: callNameOrNull(stored), muted: true });
+        setPrefs({ name: callNameOrNull(stored), muted });
         try {
+          const now = new Date();
+          const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
+          const todayWrapped = month.wrappedDates.includes(today);
           for (const habit of month.habits) {
             if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
               continue;
@@ -97,7 +103,15 @@ function Shell() {
               habitName: habit.name,
               hour: habit.reminderHour,
               minute: habit.reminderMinute,
+              todayWrapped,
             });
+          }
+          const hourRaw = await readSetting(database, EVENING_HOUR_KEY);
+          const minuteRaw = await readSetting(database, EVENING_MINUTE_KEY);
+          const hour = hourRaw == null ? null : Number(hourRaw);
+          const minute = minuteRaw == null ? null : Number(minuteRaw);
+          if (hour != null && minute != null && Number.isInteger(hour) && Number.isInteger(minute)) {
+            await syncEveningWrap(hour, minute, todayWrapped);
           }
         } catch {
           // A reminder that cannot be scheduled stays off. The rest of the app still opens.
@@ -113,14 +127,14 @@ function Shell() {
     };
   }, []);
 
-  mutedRef.current = prefs?.muted ?? true;
+  setCueSound(!(prefs?.muted ?? true));
 
   const bindBack = useCallback((handler: (() => boolean) | null) => {
     sheetBack.current = handler;
   }, []);
 
   function onGesture() {
-    if (!mutedRef.current) loop.current?.start();
+    // The grid stays silent. Sound is the tick and the night tone only.
   }
 
   function back() {
@@ -182,7 +196,7 @@ function Shell() {
             <Text style={styles.body}>Opening…</Text>
           </View>
         ) : null}
-        {!fatal && prefs && place.kind !== "home" && place.kind !== "profile" ? (
+        {!fatal && prefs && place.kind !== "home" && place.kind !== "profile" && place.kind !== "ideas" ? (
           <ScreenNav onBack={back} onExit={exitHome} />
         ) : null}
         {!fatal && prefs && place.kind === "home" ? (
@@ -209,6 +223,7 @@ function Shell() {
           />
         ) : null}
         {!fatal && prefs && place.kind === "score" ? <ScoreScreen monthId={place.monthId} /> : null}
+        {!fatal && prefs && place.kind === "ideas" ? <IdeasScreen onGesture={onGesture} /> : null}
         {!fatal && prefs && place.kind === "profile" ? (
           <ProfileScreen
             name={prefs.name}
@@ -216,15 +231,17 @@ function Shell() {
             onName={(name) => setPrefs({ ...prefs, name })}
             onMuted={(muted) => setPrefs({ ...prefs, muted })}
             onGesture={onGesture}
-            onStart={() => loop.current?.start()}
+            onStart={() => undefined}
             onStop={() => loop.current?.stop()}
           />
         ) : null}
         {!fatal && prefs && (place.kind === "templates" || place.kind === "template-editor") ? (
           <TemplatesScreen
-            key={place.kind}
+            key={place.kind === "template-editor" ? `edit-${place.templateId ?? "new"}` : "templates"}
             editing={place.kind === "template-editor"}
+            templateId={place.kind === "template-editor" ? (place.templateId ?? null) : null}
             onBegin={() => push({ kind: "template-editor" })}
+            onEdit={(templateId) => push({ kind: "template-editor", templateId })}
             onDone={() => setStack((current) => (current.length > 1 ? current.slice(0, -1) : current))}
             onOpenToday={() => push({ kind: "today" })}
             onGesture={onGesture}

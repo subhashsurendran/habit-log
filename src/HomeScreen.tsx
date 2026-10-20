@@ -4,9 +4,15 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { BrandLockup } from "./BrandLockup";
 import {
   DISPLAY_NAME_KEY,
+  EVENING_HOUR_KEY,
+  EVENING_MINUTE_KEY,
+  addHabit,
   loadDashboard,
   markDoneToday,
   openAppDatabase,
+  readSetting,
+  setLocked,
+  wrapToday,
   writeSetting,
   type DashboardState,
 } from "./db";
@@ -14,8 +20,10 @@ import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { greetingLine } from "./greet";
 import { dateFor, monthTitle } from "./month";
 import { validateCallName } from "./names";
-import { syncFollowUp } from "./notify";
+import { syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
+import { playNight } from "./cues";
 import { openTodayHabits, scoreStoredMonth, type OpenHabit } from "./score";
+import { suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
 import { ui } from "./theme";
 
 export function HomeScreen({
@@ -38,7 +46,11 @@ export function HomeScreen({
   const [draft, setDraft] = useState("");
   const [board, setBoard] = useState<DashboardState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
+  const [suggestionShift, setSuggestionShift] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -63,7 +75,7 @@ export function HomeScreen({
     try {
       next = validateCallName(draft);
     } catch (error: unknown) {
-      setBanner(errorText(error));
+      setBanner(errorText(error), true);
       return;
     }
     void openAppDatabase()
@@ -73,36 +85,86 @@ export function HomeScreen({
         setDraft("");
         setBanner(null);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function markOpen(habit: OpenHabit) {
     if (!board) return;
     onGesture();
+    if (habit.entry !== "tick" && habit.entry !== "timer") {
+      onOpenToday();
+      return;
+    }
     const today = new Date();
     const monthId = board.current.id;
     void openAppDatabase()
       .then(async (database) => {
         const entry = await markDoneToday(database, monthId, habit.id, today);
         if (!entry) {
-          setBanner("Add a line on Today first.");
+          setBanner("Add a line on Today first.", true);
           return;
         }
-        if (entry === "tick" || entry === "timer") {
-          const result = await syncFollowUp({
-            habitId: habit.id,
-            habitName: habit.name,
-            date: dateFor(today.getFullYear(), today.getMonth() + 1, today.getDate()),
-            hours: habit.followUpHours,
-            completed: true,
-          });
-          setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null);
-        } else {
-          setBanner(null);
-        }
+        const result = await syncFollowUp({
+          habitId: habit.id,
+          habitName: habit.name,
+          date: dateFor(today.getFullYear(), today.getMonth() + 1, today.getDate()),
+          hours: habit.followUpHours,
+          completed: true,
+        });
+        setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null, result === "unavailable");
         setBoard(await loadDashboard(database));
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
+  }
+
+  function addSuggestion(item: HabitSuggestion) {
+    if (!board) return;
+    onGesture();
+    void openAppDatabase()
+      .then((database) => addHabit(database, board.current.id, item.name, item.entry, []))
+      .then(() => openAppDatabase())
+      .then((database) => loadDashboard(database))
+      .then((next) => {
+        setBoard(next);
+        setBanner(`${item.name} is on this month.`);
+      })
+      .catch((error: unknown) => setBanner(errorText(error), true));
+  }
+
+  function closeNight() {
+    if (!board) return;
+    onGesture();
+    const today = new Date();
+    void openAppDatabase()
+      .then(async (database) => {
+        await wrapToday(database, board.current.id, board.current.year, board.current.month);
+        await setLocked(database, board.current.id, true);
+        for (const habit of board.current.habits) {
+          if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) continue;
+          await syncDailyReminder({
+            habitId: habit.id,
+            habitName: habit.name,
+            hour: habit.reminderHour,
+            minute: habit.reminderMinute,
+            todayWrapped: true,
+          });
+        }
+        const hourRaw = await readSetting(database, EVENING_HOUR_KEY);
+        const minuteRaw = await readSetting(database, EVENING_MINUTE_KEY);
+        const hour = hourRaw == null ? null : Number(hourRaw);
+        const minute = minuteRaw == null ? null : Number(minuteRaw);
+        if (hour != null && minute != null && Number.isInteger(hour) && Number.isInteger(minute)) {
+          await syncEveningWrap(hour, minute, true);
+        }
+        return loadDashboard(database);
+      })
+      .then((next) => {
+        if (!next) return;
+        playNight();
+        setBoard(next);
+        setBanner(null);
+      })
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   const score = board ? scoreStoredMonth(board.current) : null;
@@ -111,6 +173,15 @@ export function HomeScreen({
   const past = board ? board.past.filter((month) => month.id !== board.sampleMonthId) : [];
   const upcoming = board ? board.upcoming.filter((month) => month.id !== board.sampleMonthId) : [];
   const sampleMonths = board ? board.past.filter((month) => month.id === board.sampleMonthId) : [];
+  const todayKey = dateFor(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+  const nightClosed = board?.current.wrappedDates.includes(todayKey) ?? false;
+  const homeLine = banner?.failed
+    ? banner.text
+    : fatal
+      ? fatal
+      : nightClosed
+        ? "Tonight is closed."
+        : (banner?.text ?? null);
 
   return (
     <ScrollView
@@ -158,36 +229,45 @@ export function HomeScreen({
         }}
       >
         <Text style={ui.section}>This month</Text>
-        {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
-        {!fatal && !score ? <Text style={ui.body}>Opening…</Text> : null}
+        {!score && !fatal ? <Text style={ui.body}>Opening…</Text> : null}
         {score && score.percent == null ? <Text style={ui.body}>No closed days yet</Text> : null}
         {score && score.percent != null ? <Text style={ui.percent}>{score.percent}%</Text> : null}
       </Pressable>
-      {board && habitCount > 0 && open.length === 0 ? (
-        <Text style={ui.quiet} testID="done-for-today">
-          Done for today.
-        </Text>
-      ) : null}
-      {open.length ? (
-        <View style={ui.stack} testID="open-today">
-          <Text style={ui.section}>
-            {open.length} still open today
-          </Text>
-          {open.map((habit) => (
-            <View key={habit.id} style={ui.row}>
-              <Text style={[ui.body, { flex: 1 }]}>{habit.name}</Text>
-              <Pressable
-                style={ui.button}
-                accessibilityLabel={`Done, ${habit.name}`}
-                testID={`open-done-${habit.id}`}
-                onPress={() => markOpen(habit)}
-              >
-                <Text style={ui.buttonText}>Done</Text>
-              </Pressable>
+      {!nightClosed && board && habitCount > 0 ? (
+        <View style={ui.cardLive} testID="tonight">
+          {open.length === 0 ? (
+            <Text style={ui.quiet} testID="done-for-today">
+              Done for today.
+            </Text>
+          ) : (
+            <View style={ui.stack} testID="open-today">
+              <Text style={ui.section}>{open.length} still open today</Text>
+              {open.map((habit) => {
+                const marksHere = habit.entry === "tick" || habit.entry === "timer";
+                return (
+                  <View key={habit.id} style={ui.row}>
+                    <Text style={[ui.body, { flex: 1 }]}>{habit.name}</Text>
+                    <Pressable
+                      style={ui.button}
+                      accessibilityLabel={marksHere ? `Done, ${habit.name}` : `Open ${habit.name}`}
+                      testID={`open-done-${habit.id}`}
+                      onPress={() => markOpen(habit)}
+                    >
+                      <Text style={ui.buttonText}>{marksHere ? "Done" : "Open"}</Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </View>
-          ))}
+          )}
+          <Pressable style={ui.primary} testID="home-wrap" accessibilityLabel="Wrap up day" onPress={closeNight}>
+            <Text style={ui.primaryText}>Wrap up day</Text>
+          </Pressable>
+          <HomeLine failed={Boolean(banner?.failed || fatal)} text={homeLine} />
         </View>
-      ) : null}
+      ) : (
+        <HomeLine failed={Boolean(banner?.failed || fatal)} text={homeLine} />
+      )}
       <Pressable
         style={ui.primary}
         accessibilityLabel="Track today"
@@ -210,6 +290,17 @@ export function HomeScreen({
       >
         <Text style={ui.buttonText}>Add habit</Text>
       </Pressable>
+      {board ? (
+        <SuggestionCard
+          names={board.current.habits.map((habit) => habit.name)}
+          shift={suggestionShift}
+          onAnother={() => {
+            onGesture();
+            setSuggestionShift((current) => current + 1);
+          }}
+          onAdd={addSuggestion}
+        />
+      ) : null}
       {upcoming.length ? (
         <View style={ui.stack} testID="next-months">
           <Text style={ui.section}>Next</Text>
@@ -267,7 +358,53 @@ export function HomeScreen({
           ))}
         </View>
       ) : null}
-      {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>
+  );
+}
+
+function HomeLine({ text, failed }: { text: string | null; failed: boolean }) {
+  if (!text) return null;
+  return (
+    <Text style={failed ? ui.banner : ui.note} testID={text === "Tonight is closed." ? "night-closed" : "home-line"}>
+      {text}
+    </Text>
+  );
+}
+
+function SuggestionCard({
+  names,
+  shift,
+  onAnother,
+  onAdd,
+}: {
+  names: readonly string[];
+  shift: number;
+  onAnother: () => void;
+  onAdd: (item: HabitSuggestion) => void;
+}) {
+  const open = suggestionsNotKept(names);
+  const item = suggestionAt(open, shift);
+  if (!item) return null;
+  return (
+    <View style={ui.card} testID="habit-suggestion">
+      <Text style={ui.section}>A habit people keep</Text>
+      <Text style={ui.body}>{item.name}</Text>
+      <Text style={ui.quiet}>{item.line}</Text>
+      <View style={ui.row}>
+        <Pressable
+          style={ui.button}
+          testID="suggestion-add"
+          accessibilityLabel={`Add ${item.name}`}
+          onPress={() => onAdd(item)}
+        >
+          <Text style={ui.buttonText}>Add</Text>
+        </Pressable>
+        {open.length > 1 ? (
+          <Pressable style={ui.button} testID="suggestion-another" accessibilityLabel="Another habit" onPress={onAnother}>
+            <Text style={ui.buttonText}>Another</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
   );
 }

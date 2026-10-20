@@ -77,8 +77,11 @@ import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
+import { playNight, playTick } from "./cues";
 import { countsAsMiss, shownMark } from "./tally";
-import { scoreStoredMonth } from "./score";
+import { easeSentence, scoreStoredMonth, weeklyEase } from "./score";
+import { reminderNote } from "./reminderWhen";
+import { suggestionsNotKept } from "./suggestions";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 
@@ -109,6 +112,14 @@ function rowHeight(_entry: Entry): number {
   return ROW_H;
 }
 
+function monthWrappedToday(
+  month: { year: number; month: number; wrappedDates: readonly string[] },
+  now = new Date(),
+): boolean {
+  if (month.year !== now.getFullYear() || month.month !== now.getMonth() + 1) return false;
+  return month.wrappedDates.includes(dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate()));
+}
+
 export function MonthScreen({
   monthId,
   openAdd = false,
@@ -129,7 +140,10 @@ export function MonthScreen({
   const revealedKey = useRef("");
   const [month, setMonth] = useState<MonthState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
   const [addOpen, setAddOpen] = useState(openAdd);
   const [timeEdit, setTimeEdit] = useState<
     { mode: "cell"; habit: Habit; day: number } | { mode: "reminder"; habit: Habit } | null
@@ -207,7 +221,7 @@ export function MonthScreen({
       () => undefined,
     );
     return run.catch((error: unknown) => {
-      setBanner(errorText(error));
+      setBanner(errorText(error), true);
       throw error;
     });
   }
@@ -310,6 +324,7 @@ export function MonthScreen({
                 items,
               ),
             );
+            playTick();
             setChecklistEdit(null);
           }}
         />
@@ -317,210 +332,15 @@ export function MonthScreen({
     );
   }
 
+  const easeWhen = (() => {
+    const now = new Date();
+    if (month.year === now.getFullYear() && month.month === now.getMonth() + 1) return now;
+    return new Date(month.year, month.month, 0);
+  })();
+  const ease = weeklyEase(month, easeWhen);
+
   return (
     <View style={styles.screen} testID="month-grid">
-      <View style={styles.controls}>
-        <View style={styles.actions}>
-          {review && readOnly ? (
-            <Pressable
-              style={styles.button}
-              accessibilityLabel="Edit"
-              testID="edit-month"
-              onPress={() => {
-                setEditingPast(true);
-                if (month.locked) {
-                  void enqueue((database) => setLocked(database, month.id, false)).catch(() => undefined);
-                }
-              }}
-            >
-              <Text style={styles.buttonText}>Edit</Text>
-            </Pressable>
-          ) : (
-            <>
-              {frozen ? null : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Add habit"
-                  onPress={() => setAddOpen(true)}
-                  testID="add-row"
-                >
-                  <Text style={styles.buttonText}>Add habit</Text>
-                </Pressable>
-              )}
-              {review ? (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Done"
-                  testID="done-edit"
-                  onPress={() => {
-                    setEditingPast(false);
-                    void enqueue((database) => setLocked(database, month.id, true)).catch(() => undefined);
-                  }}
-                >
-                  <Text style={styles.buttonText}>Done</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel={month.locked ? "Unlock habits" : "Lock habits"}
-                  testID="lock-rows"
-                  onPress={() => {
-                    void enqueue((database) => setLocked(database, month.id, !month.locked)).catch(
-                      () => undefined,
-                    );
-                  }}
-                >
-                  <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
-                </Pressable>
-              )}
-              {review ? null : (
-                <Pressable
-                  style={[styles.button, styles.buttonOn]}
-                  accessibilityLabel="Wrap up day"
-                  testID="wrap-today"
-                  onPress={() => {
-                    void enqueue(async (database) => {
-                      await wrapToday(database, month.id, month.year, month.month);
-                      await setLocked(database, month.id, true);
-                    })
-                      .then(() => {
-                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-                      })
-                      .catch(() => undefined);
-                  }}
-                >
-                  <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
-                </Pressable>
-              )}
-            </>
-          )}
-          {undoReady ? (
-            <Pressable
-              style={styles.button}
-              accessibilityLabel="Undo"
-              testID="undo-mark"
-              onPress={() => {
-                void enqueue((database) => undoLastMark(database))
-                  .then(() => setUndoReady(canUndoMark()))
-                  .catch(() => undefined);
-              }}
-            >
-              <Text style={styles.buttonText}>Undo</Text>
-            </Pressable>
-          ) : null}
-          <Pressable
-            style={styles.button}
-            accessibilityLabel={more ? "Less" : "More"}
-            testID="more-controls"
-            onPress={() => {
-              setMore((open) => !open);
-              setRestoreArmed(false);
-            }}
-          >
-            <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
-          </Pressable>
-        </View>
-        {more || query.length > 0 || tagFilter != null ? (
-          <>
-            <TextInput
-              testID="habit-search"
-              accessibilityLabel="Search habits"
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search habits"
-              placeholderTextColor="#8A7A9E"
-              autoCorrect={false}
-              style={styles.search}
-            />
-            {tagChoices.length ? (
-              <View style={styles.actions}>
-                <Pressable
-                  accessibilityLabel="All habits"
-                  testID="tag-filter-all"
-                  style={[styles.button, tagFilter == null && styles.buttonOn]}
-                  onPress={() => setTagFilter(null)}
-                >
-                  <Text style={styles.buttonText}>All</Text>
-                </Pressable>
-                {tagChoices.map((tag) => (
-                  <Pressable
-                    key={tag}
-                    accessibilityLabel={`Filter ${tag}`}
-                    testID={`tag-filter-${testSlug(tag)}`}
-                    style={[styles.button, tagFilter === tag && styles.buttonOn]}
-                    onPress={() => setTagFilter(tag)}
-                  >
-                    <Text style={styles.buttonText}>{tag}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            ) : null}
-            {review ? null : (
-              <Pressable
-                style={styles.button}
-                accessibilityLabel="Evening reminder"
-                testID="evening-reminder"
-                onPress={() => setEveningOpen(true)}
-              >
-                <Text style={styles.buttonText}>
-                  {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
-                </Text>
-              </Pressable>
-            )}
-            <View style={styles.actions}>
-              <Pressable
-                style={styles.button}
-                accessibilityLabel="Save backup"
-                testID="save-backup"
-                onPress={() => {
-                  void enqueue(async (database) => {
-                    const name = await saveBackup(database);
-                    setBanner(`Saved ${name} on this phone.`);
-                    setRestoreArmed(false);
-                  }).catch(() => undefined);
-                }}
-              >
-                <Text style={styles.buttonText}>Save backup</Text>
-              </Pressable>
-              {restoreArmed ? (
-                <>
-                  <Text style={styles.quiet}>This replaces the log on this phone.</Text>
-                  <Pressable
-                    style={styles.button}
-                    accessibilityLabel="Confirm restore"
-                    testID="confirm-restore"
-                    onPress={() => {
-                      const name = listBackupNames()[0];
-                      if (!name) {
-                        setBanner("No backup is saved on this phone.");
-                        setRestoreArmed(false);
-                        return;
-                      }
-                      void enqueue(async (database) => {
-                        await restoreBackup(database, name);
-                        setBanner("Restored on this phone.");
-                        setRestoreArmed(false);
-                      }).catch(() => undefined);
-                    }}
-                  >
-                    <Text style={styles.buttonText}>Confirm restore</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Restore latest"
-                  testID="restore-backup"
-                  onPress={() => setRestoreArmed(true)}
-                >
-                  <Text style={styles.buttonText}>Restore latest</Text>
-                </Pressable>
-              )}
-            </View>
-          </>
-        ) : null}
-        {banner ? <Text style={styles.banner}>{banner}</Text> : null}
-      </View>
       <View style={styles.monthBar}>
         <Text style={styles.month} testID="month-title">
           {monthTitle(month.year, month.month)}
@@ -528,6 +348,11 @@ export function MonthScreen({
         {sample ? (
           <Text style={styles.quiet} testID="sample-month">
             Sample
+          </Text>
+        ) : null}
+        {ease ? (
+          <Text style={styles.quiet} testID="ease-line">
+            {easeSentence(ease)}
           </Text>
         ) : null}
         {review && pastScore ? (
@@ -648,6 +473,7 @@ export function MonthScreen({
                               month.month,
                               day,
                             );
+                            if (outcome === "tick") playTick();
                             if (outcome === "tick" || outcome === "cross") {
                               void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
                                 () => undefined,
@@ -661,7 +487,7 @@ export function MonthScreen({
                               completed: outcome === "tick",
                             });
                             if (result === "unavailable") {
-                              setBanner("Saved. The notification was not scheduled.");
+                              setBanner("Saved. The notification was not scheduled.", true);
                             }
                           }).catch(() => undefined);
                         }}
@@ -679,8 +505,236 @@ export function MonthScreen({
         </View>
       </ScrollView>
 
+      <View style={styles.controls}>
+        {more || query.length > 0 || tagFilter != null ? (
+          <>
+            <TextInput
+              testID="habit-search"
+              accessibilityLabel="Search habits"
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search habits"
+              placeholderTextColor="#8A7A9E"
+              autoCorrect={false}
+              style={styles.search}
+            />
+            {tagChoices.length ? (
+              <View style={styles.actions}>
+                <Pressable
+                  accessibilityLabel="All habits"
+                  testID="tag-filter-all"
+                  style={[styles.button, tagFilter == null && styles.buttonOn]}
+                  onPress={() => setTagFilter(null)}
+                >
+                  <Text style={styles.buttonText}>All</Text>
+                </Pressable>
+                {tagChoices.map((tag) => (
+                  <Pressable
+                    key={tag}
+                    accessibilityLabel={`Filter ${tag}`}
+                    testID={`tag-filter-${testSlug(tag)}`}
+                    style={[styles.button, tagFilter === tag && styles.buttonOn]}
+                    onPress={() => setTagFilter(tag)}
+                  >
+                    <Text style={styles.buttonText}>{tag}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+            {review ? null : (
+              <Pressable
+                style={styles.button}
+                accessibilityLabel="Evening reminder"
+                testID="evening-reminder"
+                onPress={() => setEveningOpen(true)}
+              >
+                <Text style={styles.buttonText}>
+                  {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
+                </Text>
+              </Pressable>
+            )}
+            <View style={styles.actions}>
+              <Pressable
+                style={styles.button}
+                accessibilityLabel="Save backup"
+                testID="save-backup"
+                onPress={() => {
+                  void enqueue(async (database) => {
+                    const name = await saveBackup(database);
+                    setBanner(`Saved ${name} on this phone.`);
+                    setRestoreArmed(false);
+                  }).catch(() => undefined);
+                }}
+              >
+                <Text style={styles.buttonText}>Save backup</Text>
+              </Pressable>
+              {restoreArmed ? (
+                <>
+                  <Text style={styles.quiet}>This replaces the log on this phone.</Text>
+                  <Pressable
+                    style={styles.button}
+                    accessibilityLabel="Confirm restore"
+                    testID="confirm-restore"
+                    onPress={() => {
+                      const name = listBackupNames()[0];
+                      if (!name) {
+                        setBanner("No backup is saved on this phone.", true);
+                        setRestoreArmed(false);
+                        return;
+                      }
+                      void enqueue(async (database) => {
+                        await restoreBackup(database, name);
+                        setBanner("Restored on this phone.");
+                        setRestoreArmed(false);
+                      }).catch(() => undefined);
+                    }}
+                  >
+                    <Text style={styles.buttonText}>Confirm restore</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Restore latest"
+                  testID="restore-backup"
+                  onPress={() => setRestoreArmed(true)}
+                >
+                  <Text style={styles.buttonText}>Restore latest</Text>
+                </Pressable>
+              )}
+            </View>
+          </>
+        ) : null}
+        {banner ? (
+          <Text style={banner.failed ? styles.banner : styles.saved} testID="today-line">
+            {banner.text}
+          </Text>
+        ) : null}
+        <View style={styles.actions}>
+          {review && readOnly ? (
+            <Pressable
+              style={styles.button}
+              accessibilityLabel="Edit"
+              testID="edit-month"
+              onPress={() => {
+                setEditingPast(true);
+                if (month.locked) {
+                  void enqueue((database) => setLocked(database, month.id, false)).catch(() => undefined);
+                }
+              }}
+            >
+              <Text style={styles.buttonText}>Edit</Text>
+            </Pressable>
+          ) : (
+            <>
+              {frozen ? null : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Add habit"
+                  onPress={() => setAddOpen(true)}
+                  testID="add-row"
+                >
+                  <Text style={styles.buttonText}>Add habit</Text>
+                </Pressable>
+              )}
+              {review ? (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel="Done"
+                  testID="done-edit"
+                  onPress={() => {
+                    setEditingPast(false);
+                    void enqueue((database) => setLocked(database, month.id, true)).catch(() => undefined);
+                  }}
+                >
+                  <Text style={styles.buttonText}>Done</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  style={styles.button}
+                  accessibilityLabel={month.locked ? "Unlock habits" : "Lock habits"}
+                  testID="lock-rows"
+                  onPress={() => {
+                    void enqueue((database) => setLocked(database, month.id, !month.locked)).catch(
+                      () => undefined,
+                    );
+                  }}
+                >
+                  <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
+                </Pressable>
+              )}
+              {review ? null : (
+                <Pressable
+                  style={[styles.button, styles.buttonOn]}
+                  accessibilityLabel="Wrap up day"
+                  testID="wrap-today"
+                  onPress={() => {
+                    void enqueue(async (database) => {
+                      await wrapToday(database, month.id, month.year, month.month);
+                      await setLocked(database, month.id, true);
+                      for (const habit of month.habits) {
+                        if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
+                          continue;
+                        }
+                        await syncDailyReminder({
+                          habitId: habit.id,
+                          habitName: habit.name,
+                          hour: habit.reminderHour,
+                          minute: habit.reminderMinute,
+                          todayWrapped: true,
+                        });
+                      }
+                      const hourRaw = await readSetting(database, EVENING_HOUR_KEY);
+                      const minuteRaw = await readSetting(database, EVENING_MINUTE_KEY);
+                      const hour = hourRaw == null ? null : Number(hourRaw);
+                      const minute = minuteRaw == null ? null : Number(minuteRaw);
+                      if (hour != null && minute != null && Number.isInteger(hour) && Number.isInteger(minute)) {
+                        await syncEveningWrap(hour, minute, true);
+                      }
+                    })
+                      .then(() => {
+                        playNight();
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+                      })
+                      .catch(() => undefined);
+                  }}
+                >
+                  <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
+                </Pressable>
+              )}
+            </>
+          )}
+          {undoReady ? (
+            <Pressable
+              style={styles.button}
+              accessibilityLabel="Undo"
+              testID="undo-mark"
+              onPress={() => {
+                void enqueue((database) => undoLastMark(database))
+                  .then(() => setUndoReady(canUndoMark()))
+                  .catch(() => undefined);
+              }}
+            >
+              <Text style={styles.buttonText}>Undo</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            style={styles.button}
+            accessibilityLabel={more ? "Less" : "More"}
+            testID="more-controls"
+            onPress={() => {
+              setMore((open) => !open);
+              setRestoreArmed(false);
+            }}
+          >
+            <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
+          </Pressable>
+        </View>
+      </View>
+
       {addOpen ? (
         <AddDialog
+          existingNames={month.habits.map((habit) => habit.name)}
           onClose={() => setAddOpen(false)}
           onSave={async (name, entry, tags) => {
             await enqueue((database) => addHabit(database, month.id, name, entry, tags));
@@ -744,9 +798,10 @@ export function MonthScreen({
                 habitName: name,
                 hour: editingHabit.reminderHour,
                 minute: editingHabit.reminderMinute,
+                todayWrapped: monthWrappedToday(month),
               });
               if (editingHabit.reminderHour != null && result === "unavailable") {
-                setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
+                setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
               }
             }
             setRenameTarget(null);
@@ -817,6 +872,8 @@ export function MonthScreen({
           onClose={() => setTimeEdit(null)}
           onSave={async (hour, minute) => {
             if (timeEdit.mode === "reminder") {
+              const now = new Date();
+              const todayWrapped = monthWrappedToday(month, now);
               await enqueue(async (database) => {
                 await setReminder(database, month.id, timeEdit.habit.id, hour, minute);
                 const result = await syncDailyReminder({
@@ -824,15 +881,16 @@ export function MonthScreen({
                   habitName: timeEdit.habit.name,
                   hour,
                   minute,
+                  todayWrapped,
                 });
                 if (result === "scheduled") {
-                  setBanner(`Daily reminder set for ${formatClock12(hour, minute)}.`);
+                  setBanner(reminderNote(hour, minute, now, todayWrapped));
                 }
                 if (result === "stored") {
                   setBanner("Saved on this device. The browser will not notify you.");
                 }
                 if (result === "unavailable") {
-                  setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
+                  setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
                 }
               });
               setTimeEdit(null);
@@ -849,14 +907,31 @@ export function MonthScreen({
                 hour,
                 minute,
               );
-              const result = await syncFollowUp({
+              playTick();
+              const follow = await syncFollowUp({
                 habitId: timeEdit.habit.id,
                 habitName: timeEdit.habit.name,
                 date: dateFor(month.year, month.month, timeEdit.day),
                 hours: timeEdit.habit.followUpHours,
                 completed: true,
               });
-              if (result === "unavailable") setBanner("Saved. The notification was not scheduled.");
+              if (timeEdit.habit.entry === "timer") {
+                const now = new Date();
+                const todayWrapped = monthWrappedToday(month, now);
+                await setReminder(database, month.id, timeEdit.habit.id, hour, minute);
+                const result = await syncDailyReminder({
+                  habitId: timeEdit.habit.id,
+                  habitName: timeEdit.habit.name,
+                  hour,
+                  minute,
+                  todayWrapped,
+                });
+                if (result === "scheduled") setBanner(reminderNote(hour, minute, now, todayWrapped));
+                else if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
+                else setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
+                return;
+              }
+              if (follow === "unavailable") setBanner("Saved. The notification was not scheduled.", true);
             });
             setTimeEdit(null);
           }}
@@ -921,6 +996,7 @@ export function MonthScreen({
                 voicePath,
               ),
             );
+            playTick();
             setJournalEdit(null);
           }}
         />
@@ -961,10 +1037,10 @@ export function MonthScreen({
               await writeSetting(database, EVENING_HOUR_KEY, String(hour));
               await writeSetting(database, EVENING_MINUTE_KEY, String(minute));
             });
-            const result = await syncEveningWrap(hour, minute);
+            const result = await syncEveningWrap(hour, minute, monthWrappedToday(month));
             setEvening({ hour, minute });
             setEveningOpen(false);
-            if (result === "unavailable") setBanner("Saved. The notification was not scheduled.");
+            if (result === "unavailable") setBanner("Saved. The notification was not scheduled.", true);
             if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
           }}
           onClear={async () => {
@@ -1142,9 +1218,11 @@ function DayCell({
 }
 
 function AddDialog({
+  existingNames,
   onClose,
   onSave,
 }: {
+  existingNames: readonly string[];
   onClose: () => void;
   onSave: (name: string, entry: Entry, tags: string[]) => Promise<void>;
 }) {
@@ -1155,6 +1233,7 @@ function AddDialog({
   const [message, setMessage] = useState<string | null>(null);
   const reserved = isReservedTimeName(name);
   const entry: Entry = reserved ? "timer" : chosen;
+  const ideas = suggestionsNotKept(existingNames).slice(0, 4);
   return (
     <Dialog
       title="Add habit"
@@ -1176,6 +1255,27 @@ function AddDialog({
         </View>
       }
     >
+      {ideas.length ? (
+        <>
+          <Text style={styles.fieldLabel}>People keep these</Text>
+          <View style={styles.actions}>
+            {ideas.map((idea) => (
+              <Pressable
+                key={idea.name}
+                testID={`suggest-${idea.name.toLowerCase().replace(/\s+/g, "-")}`}
+                style={styles.button}
+                onPress={() => {
+                  setName(idea.name);
+                  setChosen(idea.entry);
+                  setMessage(null);
+                }}
+              >
+                <Text style={styles.buttonText}>{idea.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
       <View style={styles.actions}>
         {ADD_PRESETS.map((preset) => (
           <Pressable
@@ -2225,8 +2325,15 @@ function cellLabel(habit: Habit, day: number, record: DayRecord | undefined): st
 
 const styles = StyleSheet.create({
   screen: { flex: 1, minHeight: 0, backgroundColor: "#16121C" },
-  controls: { paddingHorizontal: 16, paddingTop: 8, gap: 12 },
-  monthBar: { paddingHorizontal: 16, marginTop: 16, marginBottom: 8 },
+  controls: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#3A3348",
+  },
+  monthBar: { paddingHorizontal: 16, marginTop: 8, marginBottom: 8 },
   sheet: { flex: 1, minHeight: 0, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12 },
   sheetBody: { flex: 1, minHeight: 0 },
   scorePercent: { fontSize: 40, fontWeight: "800", color: "#F6F1FF" },
@@ -2235,6 +2342,7 @@ const styles = StyleSheet.create({
   quiet: { marginTop: 8, color: "#8E819C", fontSize: 13, lineHeight: 18 },
   ask: { marginTop: 12, color: "#F6F1FF", fontSize: 16, lineHeight: 22, fontWeight: "700" },
   banner: { marginTop: 8, color: "#FF8AA0", fontSize: 14 },
+  saved: { marginTop: 8, color: "#E7DCF8", fontSize: 14 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 0 },
   search: {
     height: 44,
@@ -2351,12 +2459,12 @@ const styles = StyleSheet.create({
   },
   weekend: { backgroundColor: "#201A2A" },
   weekendText: { color: "#B9A8D4" },
-  today: { backgroundColor: "#262033" },
+  today: { backgroundColor: "#14352C" },
   todayText: {
-    color: "#D4C6F5",
-    fontWeight: "500",
-    textShadowColor: "rgba(255, 255, 255, 0.38)",
-    textShadowOffset: { width: 0, height: -1 },
+    color: "#3DDC97",
+    fontWeight: "700",
+    textShadowColor: "rgba(61, 220, 151, 0.35)",
+    textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 0,
   },
   mark: { fontSize: 16, color: "#F6F1FF", textAlign: "center" },

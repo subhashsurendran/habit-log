@@ -32,6 +32,14 @@ export const ui = StyleSheet.create({
   },
   card: {
     borderWidth: 1,
+    borderColor: ink.line,
+    borderRadius: 12,
+    backgroundColor: ink.card,
+    padding: 16,
+    gap: 8,
+  },
+  cardLive: {
+    borderWidth: 1,
     borderColor: ink.bezel,
     borderRadius: 12,
     backgroundColor: ink.card,
@@ -72,6 +80,7 @@ export const ui = StyleSheet.create({
   },
   primaryText: { color: ink.text, fontSize: 16, fontWeight: "700" },
   banner: { color: ink.miss, fontSize: 14, lineHeight: 20 },
+  note: { color: ink.body, fontSize: 14, lineHeight: 20 },
   percent: { color: ink.text, fontSize: 40, fontWeight: "800", lineHeight: 48 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 });

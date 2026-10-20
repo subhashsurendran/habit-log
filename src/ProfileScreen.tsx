@@ -25,7 +25,10 @@ export function ProfileScreen({
   onStop: () => void;
 }) {
   const [draft, setDraft] = useState(name ?? "");
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  function setBanner(text: string | null, failed = false) {
+    setBannerState(text == null ? null : { text, failed });
+  }
 
   useEffect(() => {
     setDraft(name ?? "");
@@ -37,7 +40,7 @@ export function ProfileScreen({
     try {
       next = validateCallName(draft);
     } catch (error: unknown) {
-      setBanner(errorText(error));
+      setBanner(errorText(error), true);
       return;
     }
     void openAppDatabase()
@@ -46,7 +49,7 @@ export function ProfileScreen({
         onName(next);
         setBanner(null);
       })
-      .catch((error: unknown) => setBanner(errorText(error)));
+      .catch((error: unknown) => setBanner(errorText(error), true));
   }
 
   function toggleSound() {
@@ -60,7 +63,7 @@ export function ProfileScreen({
         onMuted(!next);
         if (next) onStart();
         else onStop();
-        setBanner(errorText(error));
+        setBanner(errorText(error), true);
       });
   }
 
@@ -74,7 +77,7 @@ export function ProfileScreen({
       <Text style={ui.title} accessibilityRole="header">
         {name ?? "Profile"}
       </Text>
-      <PremiumCard onGesture={onGesture} />
+      <PremiumCard notice={banner} onGesture={onGesture} />
       <Text style={ui.section}>Name</Text>
       <TextInput
         testID="profile-name"
@@ -103,12 +106,17 @@ export function ProfileScreen({
       >
         <Text style={ui.buttonText}>{muted ? "Sound off" : "Sound on"}</Text>
       </Pressable>
-      {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>
   );
 }
 
-function PremiumCard({ onGesture }: { onGesture: () => void }) {
+function PremiumCard({
+  notice,
+  onGesture,
+}: {
+  notice: { text: string; failed: boolean } | null;
+  onGesture: () => void;
+}) {
   const [offer, setOffer] = useState<PremiumOffer | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -171,7 +179,11 @@ function PremiumCard({ onGesture }: { onGesture: () => void }) {
           Not open for payment yet. It needs a paid Apple Developer membership and the product in App Store Connect.
         </Text>
       ) : null}
-      {note ? <Text style={ui.banner}>{note}</Text> : null}
+      {note ? (
+        <Text style={ui.banner}>{note}</Text>
+      ) : notice ? (
+        <Text style={notice.failed ? ui.banner : ui.note}>{notice.text}</Text>
+      ) : null}
     </View>
   );
 }
