@@ -79,6 +79,7 @@ import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
 import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
 import { scoreStoredMonth } from "./score";
+import { reminderNote } from "./reminderWhen";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 
@@ -107,6 +108,14 @@ function todayScrollX(todayDay: number, dayWidth: number, track: number, dayCoun
 
 function rowHeight(_entry: Entry): number {
   return ROW_H;
+}
+
+function monthWrappedToday(
+  month: { year: number; month: number; wrappedDates: readonly string[] },
+  now = new Date(),
+): boolean {
+  if (month.year !== now.getFullYear() || month.month !== now.getMonth() + 1) return false;
+  return month.wrappedDates.includes(dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate()));
 }
 
 export function MonthScreen({
@@ -639,6 +648,18 @@ export function MonthScreen({
                     void enqueue(async (database) => {
                       await wrapToday(database, month.id, month.year, month.month);
                       await setLocked(database, month.id, true);
+                      for (const habit of month.habits) {
+                        if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
+                          continue;
+                        }
+                        await syncDailyReminder({
+                          habitId: habit.id,
+                          habitName: habit.name,
+                          hour: habit.reminderHour,
+                          minute: habit.reminderMinute,
+                          todayWrapped: true,
+                        });
+                      }
                     })
                       .then(() => {
                         void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
@@ -745,6 +766,7 @@ export function MonthScreen({
                 habitName: name,
                 hour: editingHabit.reminderHour,
                 minute: editingHabit.reminderMinute,
+                todayWrapped: monthWrappedToday(month),
               });
               if (editingHabit.reminderHour != null && result === "unavailable") {
                 setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
@@ -818,6 +840,8 @@ export function MonthScreen({
           onClose={() => setTimeEdit(null)}
           onSave={async (hour, minute) => {
             if (timeEdit.mode === "reminder") {
+              const now = new Date();
+              const todayWrapped = monthWrappedToday(month, now);
               await enqueue(async (database) => {
                 await setReminder(database, month.id, timeEdit.habit.id, hour, minute);
                 const result = await syncDailyReminder({
@@ -825,9 +849,10 @@ export function MonthScreen({
                   habitName: timeEdit.habit.name,
                   hour,
                   minute,
+                  todayWrapped,
                 });
                 if (result === "scheduled") {
-                  setBanner(`Daily reminder set for ${formatClock12(hour, minute)}.`);
+                  setBanner(reminderNote(hour, minute, now, todayWrapped));
                 }
                 if (result === "stored") {
                   setBanner("Saved on this device. The browser will not notify you.");

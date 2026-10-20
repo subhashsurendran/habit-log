@@ -13,6 +13,8 @@ export type ReminderRequest = {
   habitName: string;
   hour: number | null;
   minute: number | null;
+  /** Tonight stays quiet after Wrap up day. Later days are still scheduled. */
+  todayWrapped?: boolean;
 };
 
 /**

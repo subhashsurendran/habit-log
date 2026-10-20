@@ -3,6 +3,7 @@ import { Platform } from "react-native";
 
 import type { FollowUpRequest, NotifyResult, ReminderRequest } from "./notify";
 import { reminderBody } from "./reminderCopy";
+import { reminderInstants } from "./reminderWhen";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -21,8 +22,29 @@ function followUpId(habitId: string, date: string): string {
   return `pencheck-followup-${habitId}-${date}`;
 }
 
-function reminderId(habitId: string): string {
-  return `pencheck-reminder-${habitId}`;
+function reminderId(habitId: string, day?: string): string {
+  return day ? `pencheck-reminder-${habitId}-${day}` : `pencheck-reminder-${habitId}`;
+}
+
+function dayKey(when: Date): string {
+  const month = String(when.getMonth() + 1).padStart(2, "0");
+  const day = String(when.getDate()).padStart(2, "0");
+  return `${when.getFullYear()}-${month}-${day}`;
+}
+
+async function cancelReminderSeries(habitId: string): Promise<void> {
+  const prefix = `pencheck-reminder-${habitId}`;
+  await cancelId(prefix);
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    await Promise.all(
+      scheduled
+        .filter((item) => item.identifier === prefix || item.identifier.startsWith(`${prefix}-`))
+        .map((item) => cancelId(item.identifier)),
+    );
+  } catch {
+    // The known id above is already cancelled.
+  }
 }
 
 async function ensureChannel(): Promise<void> {
@@ -90,33 +112,33 @@ export async function syncFollowUp(request: FollowUpRequest): Promise<NotifyResu
 }
 
 export async function syncDailyReminder(request: ReminderRequest): Promise<NotifyResult> {
-  await cancelId(reminderId(request.habitId));
+  await cancelReminderSeries(request.habitId);
   if (request.hour == null || request.minute == null) return "cancelled";
   if (!Number.isInteger(request.hour) || !Number.isInteger(request.minute)) return "unavailable";
   if (request.hour < 0 || request.hour > 23 || request.minute < 0 || request.minute > 59) {
     return "unavailable";
   }
+  const upcoming = reminderInstants(request.hour, request.minute, new Date(), request.todayWrapped === true);
+  if (!upcoming.length) return "unavailable";
   try {
     if (!(await alertsAllowed())) return "unavailable";
     await ensureChannel();
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    await Notifications.scheduleNotificationAsync({
-      identifier: reminderId(request.habitId),
-      content: {
-        title: "MyDTC",
-        body: reminderBody(request.habitName),
-        sound: true,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.CALENDAR,
-        hour: request.hour,
-        minute: request.minute,
-        second: 0,
-        repeats: true,
-        ...(timezone ? { timezone } : {}),
-        channelId: CHANNEL,
-      },
-    });
+    const body = reminderBody(request.habitName);
+    for (const when of upcoming) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: reminderId(request.habitId, dayKey(when)),
+        content: {
+          title: "MyDTC",
+          body,
+          sound: true,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: when,
+          channelId: CHANNEL,
+        },
+      });
+    }
     return "scheduled";
   } catch {
     return "unavailable";
@@ -126,7 +148,8 @@ export async function syncDailyReminder(request: ReminderRequest): Promise<Notif
 export async function reminderIsScheduled(habitId: string): Promise<boolean> {
   try {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    return scheduled.some((item) => item.identifier === reminderId(habitId));
+    const prefix = `pencheck-reminder-${habitId}`;
+    return scheduled.some((item) => item.identifier === prefix || item.identifier.startsWith(`${prefix}-`));
   } catch {
     return false;
   }
@@ -161,7 +184,7 @@ export async function syncEveningWrap(hour: number | null, minute: number | null
 }
 
 export async function cancelHabitNotifications(habitId: string): Promise<void> {
-  await cancelId(reminderId(habitId));
+  await cancelReminderSeries(habitId);
   try {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     const prefix = `pencheck-followup-${habitId}-`;

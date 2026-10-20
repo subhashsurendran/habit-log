@@ -8,7 +8,7 @@ import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSett
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { HomeScreen } from "./src/HomeScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
-import { currentMonth } from "./src/month";
+import { currentMonth, dateFor } from "./src/month";
 import { MonthScreen } from "./src/MonthScreen";
 import { callNameOrNull } from "./src/names";
 import { syncDailyReminder } from "./src/notify";
@@ -87,6 +87,9 @@ function Shell() {
         if (!live) return;
         setPrefs({ name: callNameOrNull(stored), muted: true });
         try {
+          const now = new Date();
+          const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
+          const todayWrapped = month.wrappedDates.includes(today);
           for (const habit of month.habits) {
             if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
               continue;
@@ -96,6 +99,7 @@ function Shell() {
               habitName: habit.name,
               hour: habit.reminderHour,
               minute: habit.reminderMinute,
+              todayWrapped,
             });
           }
         } catch {
