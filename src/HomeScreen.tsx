@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { BrandLockup } from "./BrandLockup";
 import {
   DISPLAY_NAME_KEY,
+  addHabit,
   loadDashboard,
   markDoneToday,
   openAppDatabase,
@@ -16,6 +17,7 @@ import { dateFor, monthTitle } from "./month";
 import { validateCallName } from "./names";
 import { syncFollowUp } from "./notify";
 import { openTodayHabits, scoreStoredMonth, type OpenHabit } from "./score";
+import { suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
 import { ui } from "./theme";
 
 export function HomeScreen({
@@ -39,6 +41,7 @@ export function HomeScreen({
   const [board, setBoard] = useState<DashboardState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [suggestionShift, setSuggestionShift] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -101,6 +104,20 @@ export function HomeScreen({
         });
         setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null);
         setBoard(await loadDashboard(database));
+      })
+      .catch((error: unknown) => setBanner(errorText(error)));
+  }
+
+  function addSuggestion(item: HabitSuggestion) {
+    if (!board) return;
+    onGesture();
+    void openAppDatabase()
+      .then((database) => addHabit(database, board.current.id, item.name, item.entry, []))
+      .then(() => openAppDatabase())
+      .then((database) => loadDashboard(database))
+      .then((next) => {
+        setBoard(next);
+        setBanner(`${item.name} is on this month.`);
       })
       .catch((error: unknown) => setBanner(errorText(error)));
   }
@@ -213,6 +230,17 @@ export function HomeScreen({
       >
         <Text style={ui.buttonText}>Add habit</Text>
       </Pressable>
+      {board ? (
+        <SuggestionCard
+          names={board.current.habits.map((habit) => habit.name)}
+          shift={suggestionShift}
+          onAnother={() => {
+            onGesture();
+            setSuggestionShift((current) => current + 1);
+          }}
+          onAdd={addSuggestion}
+        />
+      ) : null}
       {upcoming.length ? (
         <View style={ui.stack} testID="next-months">
           <Text style={ui.section}>Next</Text>
@@ -272,5 +300,43 @@ export function HomeScreen({
       ) : null}
       {banner ? <Text style={ui.banner}>{banner}</Text> : null}
     </ScrollView>
+  );
+}
+
+function SuggestionCard({
+  names,
+  shift,
+  onAnother,
+  onAdd,
+}: {
+  names: readonly string[];
+  shift: number;
+  onAnother: () => void;
+  onAdd: (item: HabitSuggestion) => void;
+}) {
+  const open = suggestionsNotKept(names);
+  const item = suggestionAt(open, shift);
+  if (!item) return null;
+  return (
+    <View style={ui.card} testID="habit-suggestion">
+      <Text style={ui.section}>A habit people keep</Text>
+      <Text style={ui.body}>{item.name}</Text>
+      <Text style={ui.quiet}>{item.line}</Text>
+      <View style={ui.row}>
+        <Pressable
+          style={ui.button}
+          testID="suggestion-add"
+          accessibilityLabel={`Add ${item.name}`}
+          onPress={() => onAdd(item)}
+        >
+          <Text style={ui.buttonText}>Add</Text>
+        </Pressable>
+        {open.length > 1 ? (
+          <Pressable style={ui.button} testID="suggestion-another" accessibilityLabel="Another habit" onPress={onAnother}>
+            <Text style={ui.buttonText}>Another</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
   );
 }

@@ -80,6 +80,7 @@ import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { countsAsMiss, shownMark } from "./tally";
 import { scoreStoredMonth } from "./score";
 import { reminderNote } from "./reminderWhen";
+import { suggestionsNotKept } from "./suggestions";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 
@@ -703,6 +704,7 @@ export function MonthScreen({
 
       {addOpen ? (
         <AddDialog
+          existingNames={month.habits.map((habit) => habit.name)}
           onClose={() => setAddOpen(false)}
           onSave={async (name, entry, tags) => {
             await enqueue((database) => addHabit(database, month.id, name, entry, tags));
@@ -1184,9 +1186,11 @@ function DayCell({
 }
 
 function AddDialog({
+  existingNames,
   onClose,
   onSave,
 }: {
+  existingNames: readonly string[];
   onClose: () => void;
   onSave: (name: string, entry: Entry, tags: string[]) => Promise<void>;
 }) {
@@ -1197,6 +1201,7 @@ function AddDialog({
   const [message, setMessage] = useState<string | null>(null);
   const reserved = isReservedTimeName(name);
   const entry: Entry = reserved ? "timer" : chosen;
+  const ideas = suggestionsNotKept(existingNames).slice(0, 4);
   return (
     <Dialog
       title="Add habit"
@@ -1218,6 +1223,27 @@ function AddDialog({
         </View>
       }
     >
+      {ideas.length ? (
+        <>
+          <Text style={styles.fieldLabel}>People keep these</Text>
+          <View style={styles.actions}>
+            {ideas.map((idea) => (
+              <Pressable
+                key={idea.name}
+                testID={`suggest-${idea.name.toLowerCase().replace(/\s+/g, "-")}`}
+                style={styles.button}
+                onPress={() => {
+                  setName(idea.name);
+                  setChosen(idea.entry);
+                  setMessage(null);
+                }}
+              >
+                <Text style={styles.buttonText}>{idea.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
       <View style={styles.actions}>
         {ADD_PRESETS.map((preset) => (
           <Pressable
