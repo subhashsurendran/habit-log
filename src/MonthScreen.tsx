@@ -875,14 +875,30 @@ export function MonthScreen({
                 hour,
                 minute,
               );
-              const result = await syncFollowUp({
+              const follow = await syncFollowUp({
                 habitId: timeEdit.habit.id,
                 habitName: timeEdit.habit.name,
                 date: dateFor(month.year, month.month, timeEdit.day),
                 hours: timeEdit.habit.followUpHours,
                 completed: true,
               });
-              if (result === "unavailable") setBanner("Saved. The notification was not scheduled.");
+              if (timeEdit.habit.entry === "timer") {
+                const now = new Date();
+                const todayWrapped = monthWrappedToday(month, now);
+                await setReminder(database, month.id, timeEdit.habit.id, hour, minute);
+                const result = await syncDailyReminder({
+                  habitId: timeEdit.habit.id,
+                  habitName: timeEdit.habit.name,
+                  hour,
+                  minute,
+                  todayWrapped,
+                });
+                if (result === "scheduled") setBanner(reminderNote(hour, minute, now, todayWrapped));
+                else if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
+                else setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.");
+                return;
+              }
+              if (follow === "unavailable") setBanner("Saved. The notification was not scheduled.");
             });
             setTimeEdit(null);
           }}
