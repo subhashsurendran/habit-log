@@ -192,7 +192,7 @@ export function TemplatesScreen({
           Templates
         </Text>
         <Text style={[ui.quiet, { marginTop: 4 }]} testID="templates-about">
-          A saved list of habits. Set copies the names, not the marks.
+          A saved list of habits you can set for this month or a later month.
         </Text>
       </View>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
