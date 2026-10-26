@@ -62,12 +62,14 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
 
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.page} testID="ideas-screen">
-      <Text style={ui.title} accessibilityRole="header">
-        What's kept
-      </Text>
-      <Text style={ui.quiet}>
-        Habits people add in many countries. This phone only changes your month.
-      </Text>
+      <View>
+        <Text style={ui.title} accessibilityRole="header">
+          What's kept
+        </Text>
+        <Text style={[ui.quiet, { marginTop: 4 }]} testID="ideas-about">
+          Habits people keep. Add puts one on this month.
+        </Text>
+      </View>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
       {!fatal && !board ? <Text style={ui.body}>Opening…</Text> : null}
       {board && waiting.length === 0 ? (

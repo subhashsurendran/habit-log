@@ -187,9 +187,14 @@ export function TemplatesScreen({
       keyboardShouldPersistTaps="handled"
       testID="templates-screen"
     >
-      <Text style={ui.title} accessibilityRole="header">
-        Templates
-      </Text>
+      <View>
+        <Text style={ui.title} accessibilityRole="header">
+          Templates
+        </Text>
+        <Text style={[ui.quiet, { marginTop: 4 }]} testID="templates-about">
+          A saved list of habits. Set copies the names, not the marks.
+        </Text>
+      </View>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
       {editing ? (
         <View style={ui.stack} testID="template-editor">

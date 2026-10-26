@@ -345,6 +345,11 @@ export function MonthScreen({
         <Text style={styles.month} testID="month-title">
           {monthTitle(month.year, month.month)}
         </Text>
+        {review ? null : (
+          <Text style={styles.quiet} testID="today-about">
+            Mark this month. The buttons sit under the grid.
+          </Text>
+        )}
         {sample ? (
           <Text style={styles.quiet} testID="sample-month">
             Sample

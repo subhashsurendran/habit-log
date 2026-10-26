@@ -45,9 +45,14 @@ export function ScoreScreen({ monthId }: { monthId?: string }) {
 
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.page} testID="score-screen">
-      <Text style={ui.title} accessibilityRole="header">
-        {title}
-      </Text>
+      <View>
+        <Text style={ui.title} accessibilityRole="header">
+          {title}
+        </Text>
+        <Text style={[ui.quiet, { marginTop: 4 }]} testID="score-about">
+          How this month went. Done, miss, and one habit to make easier.
+        </Text>
+      </View>
       {sample ? (
         <Text style={ui.quiet} testID="sample-score">
           Sample
