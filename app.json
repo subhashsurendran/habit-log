@@ -8,8 +8,9 @@
     "icon": "./assets/mydtc-logo.png",
     "backgroundColor": "#16121C",
     "ios": {
-      "supportsTablet": true,
-      "buildNumber": "5",
+      "bundleIdentifier": "com.gosubhash31.habit-log",
+      "supportsTablet": false,
+      "buildNumber": "6",
       "infoPlist": {
         "CFBundleDisplayName": "MyDTC",
         "NSMicrophoneUsageDescription": "MyDTC uses the microphone for a journal voice note stored on this phone.",
