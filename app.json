@@ -17,6 +17,7 @@
         "NSCameraUsageDescription": "MyDTC uses the camera for a journal photo stored on this phone.",
         "NSPhotoLibraryUsageDescription": "MyDTC uses the photo library for a journal photo stored on this phone.",
         "NSMicrophoneUsageDescription": "MyDTC uses the microphone for a journal voice note stored on this phone.",
+        "ITSAppUsesNonExemptEncryption": false,
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true
       }
