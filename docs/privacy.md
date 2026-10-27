@@ -1,3 +1,9 @@
+---
+layout: default
+title: Privacy
+permalink: /privacy/
+---
+
 # Privacy
 
 MyDTC keeps a habit log on this phone.

@@ -1,3 +1,9 @@
+---
+layout: default
+title: Support
+permalink: /support/
+---
+
 # Support
 
 Write to gosubhash31@gmail.com.
