@@ -4,9 +4,9 @@ import { Linking } from "react-native";
 
 /**
  * The only address Write to us opens.
- * It is the same inbox already on this repo's commits.
+ * It is the public support mailbox for mydtc-app.com.
  */
-export const WRITE_TO = "gosubhash31@gmail.com";
+export const WRITE_TO = "support@mydtc-app.com";
 
 const ADDRESS = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 

@@ -7,4 +7,4 @@ These answers are for the App Store privacy questions. This note is not a public
 - Account: None.
 - Tracking: None.
 
-The privacy page is docs/privacy.md. The support page is docs/support.md. Both still need a public URL before they can be entered in App Store Connect.
+The privacy page is https://mydtc-app.com/privacy. The support page is https://mydtc-app.com/support. Those addresses serve after the domain's DNS points at GitHub Pages. Until then, the same pages are at https://subhashsurendran.github.io/habit-log/privacy/ and https://subhashsurendran.github.io/habit-log/support/.
