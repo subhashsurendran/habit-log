@@ -2,7 +2,7 @@
 
 Personal Android and iOS habit log. One month on the device. Not part of prarambh.
 
-The name shown in the app is MyDTC, short for My Daily Task Checker. The tagline is "Small checks. Lasting habits." The expansion sits under the tagline on Home, in a smaller quiet line. Today, Score, Ideas, and Templates each open with one line on what that page is for. The GitHub repo stays habit-log. There is no store listing.
+The name shown in the app is MyDTC, short for My Daily Task Checker. The tagline is "Small checks. Lasting habits." The expansion sits under the tagline on Home, in a smaller quiet line. Today, Score, Ideas, and Templates each open with one line on what that page is for. The GitHub repo stays habit-log. There is no store listing. Privacy and support pages are in docs/. They still need a public URL.
 
 ## Run on a Mac
 
