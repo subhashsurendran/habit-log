@@ -1,9 +1,32 @@
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState, type ComponentType, type Ref } from "react";
+import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import WebView from "react-native-webview";
+
+// The package's iOS and Android prop types intersect to never under this SDK.
+const SupportView = WebView as unknown as ComponentType<{
+  ref?: Ref<WebView>;
+  style?: { height: number; width: number; opacity: number };
+  originWhitelist?: string[];
+  source?: { html: string; baseUrl: string };
+  injectedJavaScript?: string;
+  onLoadEnd?: () => void;
+  onMessage?: (event: { nativeEvent: { data: string } }) => void;
+  onError?: () => void;
+  onHttpError?: () => void;
+  onShouldStartLoadWithRequest?: (request: { url: string }) => boolean;
+}>;
 
 import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, writeSetting } from "./db";
 import { errorText } from "./errors";
-import { sendSupportNote } from "./feedback";
+import {
+  ACTIVATE_LINE,
+  NOT_SENT,
+  READ_SUPPORT_PAGE,
+  appBuild,
+  cleanSupportNote,
+  supportFormHtml,
+  supportPageResult,
+} from "./feedback";
 import { validateCallName } from "./names";
 import { ui } from "./theme";
 
@@ -115,26 +138,69 @@ export function ProfileScreen({
   );
 }
 
+function hostAllowed(url: string): boolean {
+  if (url.startsWith("about:")) return true;
+  try {
+    const host = new URL(url).hostname;
+    return host === "formsubmit.co" || host.endsWith(".formsubmit.co") || host === "challenges.cloudflare.com";
+  } catch {
+    return false;
+  }
+}
+
 function WriteToUs({ onGesture }: { onGesture: () => void }) {
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
+  const [page, setPage] = useState<string | null>(null);
   const [line, setLine] = useState<{ text: string; failed: boolean } | null>(null);
+  const view = useRef<WebView>(null);
+  const finished = useRef(false);
+
+  useEffect(() => {
+    if (!sending) return;
+    const timer = setTimeout(() => finish(NOT_SENT, true, false), 25000);
+    return () => clearTimeout(timer);
+  }, [sending]);
+
+  function finish(text: string, failed: boolean, clear: boolean) {
+    if (finished.current) return;
+    finished.current = true;
+    setSending(false);
+    setPage(null);
+    setLine({ text, failed });
+    if (clear) setNote("");
+  }
+
+  function readPage(text: string) {
+    const result = supportPageResult(text);
+    if (result === "wait") return;
+    if (result === "activate") finish(ACTIVATE_LINE, true, false);
+    else if (result === "sent") finish("Sent.", false, true);
+    else finish(NOT_SENT, true, false);
+  }
 
   function send() {
     onGesture();
-    if (!note.trim() || sending) {
-      if (!note.trim()) setLine({ text: "Write a note before sending.", failed: true });
+    if (sending) return;
+    let next: string | null;
+    try {
+      next = cleanSupportNote(note);
+    } catch (error: unknown) {
+      setLine({ text: errorText(error), failed: true });
       return;
     }
-    setSending(true);
+    if (!next) {
+      setLine({ text: "Write a note before sending.", failed: true });
+      return;
+    }
+    if (Platform.OS !== "ios") {
+      setLine({ text: NOT_SENT, failed: true });
+      return;
+    }
+    finished.current = false;
     setLine(null);
-    void sendSupportNote(note)
-      .then(() => {
-        setNote("");
-        setLine({ text: "Sent.", failed: false });
-      })
-      .catch((error: unknown) => setLine({ text: errorText(error), failed: true }))
-      .finally(() => setSending(false));
+    setPage(supportFormHtml(next, appBuild()));
+    setSending(true);
   }
 
   return (
@@ -169,6 +235,20 @@ function WriteToUs({ onGesture }: { onGesture: () => void }) {
         <Text style={line.failed ? ui.banner : ui.note} testID="write-to-us-line">
           {line.text}
         </Text>
+      ) : null}
+      {page ? (
+        <SupportView
+          ref={view}
+          style={{ height: 1, width: 1, opacity: 0 }}
+          originWhitelist={["https://*", "about:*"]}
+          source={{ html: page, baseUrl: "https://formsubmit.co/" }}
+          injectedJavaScript={READ_SUPPORT_PAGE}
+          onLoadEnd={() => view.current?.injectJavaScript(READ_SUPPORT_PAGE)}
+          onMessage={(event) => readPage(event.nativeEvent.data)}
+          onError={() => finish(NOT_SENT, true, false)}
+          onHttpError={() => finish(NOT_SENT, true, false)}
+          onShouldStartLoadWithRequest={(request) => hostAllowed(request.url)}
+        />
       ) : null}
     </View>
   );

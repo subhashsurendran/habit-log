@@ -8,15 +8,16 @@ import Constants from "expo-constants";
 export const WRITE_TO = "support@mydtc-app.com";
 
 /**
- * FormSubmit's public client endpoint for that mailbox.
- * The address is in the URL. There is no password and no secret in the app.
- * A 2xx JSON body with success true is the only accepted result.
+ * FormSubmit's form for that mailbox.
+ * A browser post to this address is what FormSubmit answered.
+ * There is no password and no secret in the app.
  */
-export const SUPPORT_ENDPOINT = "https://formsubmit.co/ajax/support@mydtc-app.com";
+export const SUPPORT_FORM = `https://formsubmit.co/${WRITE_TO}`;
 
-const ADDRESS = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+export const ACTIVATE_LINE = "Open the email at support@mydtc-app.com and tap Activate Form.";
+export const NOT_SENT = "The note was not sent.";
+
 const NOTE_MAX = 2000;
-const NOT_SENT = "The note was not sent.";
 
 /** Build stamped on the installed app, then the number in app config. */
 export function appBuild(): string {
@@ -35,45 +36,45 @@ export function cleanSupportNote(raw: string): string | null {
   return note;
 }
 
-export function supportAccepted(status: number, body: unknown): boolean {
-  if (status < 200 || status >= 300) return false;
-  if (!body || typeof body !== "object") return false;
-  const success = (body as { success?: unknown }).success;
-  return success === true || success === "true";
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-export async function sendSupportNote(raw: string, build = appBuild()): Promise<void> {
-  const note = cleanSupportNote(raw);
-  if (!note) throw new Error("Write a note before sending.");
-  if (!ADDRESS.test(WRITE_TO) || SUPPORT_ENDPOINT !== `https://formsubmit.co/ajax/${WRITE_TO}`) {
-    throw new Error(NOT_SENT);
-  }
-  if (/[\r\n]/.test(build)) throw new Error(NOT_SENT);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
-  try {
-    const response = await fetch(SUPPORT_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: note,
-        _subject: `MyDTC build ${build.trim() || "0"}`,
-        _captcha: "false",
-        _template: "box",
-      }),
-      signal: controller.signal,
-    });
-    const body: unknown = await response.json().catch(() => null);
-    if (!supportAccepted(response.status, body)) throw new Error(NOT_SENT);
-  } catch (error: unknown) {
-    if (error instanceof Error && error.message === "Write a note before sending.") throw error;
-    if (error instanceof Error && error.message === "Use 2000 characters or fewer.") throw error;
-    if (error instanceof Error && error.message === NOT_SENT) throw error;
-    throw new Error(NOT_SENT);
-  } finally {
-    clearTimeout(timer);
-  }
+/** The page a WebKit view posts. Same address the activation screen named. */
+export function supportFormHtml(note: string, build: string): string {
+  const subject = `MyDTC build ${build.trim() || "0"}`;
+  return `<!DOCTYPE html><html><body><form id="f" method="POST" action="${SUPPORT_FORM}"><input type="hidden" name="message" value="${escapeHtml(note)}"><input type="hidden" name="_subject" value="${escapeHtml(subject)}"><input type="hidden" name="_captcha" value="false"><input type="hidden" name="_template" value="box"></form><script>document.getElementById("f").submit();</script></body></html>`;
 }
+
+export type SupportPage = "wait" | "activate" | "sent" | "failed";
+
+/** What FormSubmit's reply page means. The note itself is not returned. */
+export function supportPageResult(text: string): SupportPage {
+  const body = text.trim();
+  if (body.length < 12) return "wait";
+  const lower = body.toLowerCase();
+  if (lower.includes("just a moment")) return "failed";
+  if (lower.includes("needs activation") || lower.includes("activate form")) return "activate";
+  if (lower.includes("make sure you open this page through a web server")) return "failed";
+  if (
+    lower.includes("your message has been sent") ||
+    lower.includes("submission has been received") ||
+    lower.includes("thanks for using formsubmit") ||
+    /"success"\s*:\s*"?true"?/.test(lower)
+  ) {
+    return "sent";
+  }
+  return "wait";
+}
+
+export const READ_SUPPORT_PAGE = `
+(function () {
+  var text = document.body ? document.body.innerText.slice(0, 400) : "";
+  if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(text);
+})();
+true;
+`;
