@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { loadMonth, openAppDatabase, openMonth, SAMPLE_MONTH_KEY, readSetting } from "./db";
 import { logOpenFailed, OPEN_FAILED } from "./errors";
 import { monthTitle } from "./month";
 import { scoreStoredMonth, weeklyEase, easeSentence, type MonthScore } from "./score";
-import { ui } from "./theme";
+import { ink, ui } from "./theme";
 
 export function ScoreScreen({ monthId }: { monthId?: string }) {
   const [score, setScore] = useState<MonthScore | null>(null);
@@ -83,16 +83,7 @@ function ScoreBody({
           <Text style={ui.percent} testID="score-percent">
             {score.percent}%
           </Text>
-          <Text style={ui.body} testID="score-done">
-            Done {score.done}
-          </Text>
-          <Text style={ui.body} testID="score-miss">
-            Miss {score.miss}
-          </Text>
-          <Text style={ui.section}>Done</Text>
-          <DayList lines={score.lines} kind="done" empty="None" />
-          <Text style={ui.section}>Miss</Text>
-          <DayList lines={score.lines} kind="miss" empty="None" />
+          <ScoreTable score={score} />
         </View>
       )}
       <Text style={ui.section}>This week</Text>
@@ -109,56 +100,89 @@ function ScoreBody({
   );
 }
 
-function compactDays(days: readonly number[]): string {
-  if (!days.length) return "";
-  const parts: string[] = [];
-  let start = days[0] ?? 0;
-  let previous = start;
-  for (let index = 1; index <= days.length; index += 1) {
-    const day = days[index];
-    if (day === previous + 1) {
-      previous = day;
-      continue;
-    }
-    parts.push(start === previous ? String(start) : `${start}-${previous}`);
-    if (day == null) break;
-    start = day;
-    previous = day;
-  }
-  if (parts.length <= 3) return parts.join(", ");
-  const first = days[0];
-  const last = days[days.length - 1];
-  if (first == null || last == null || first === last) return parts.join(", ");
-  return `scattered ${first}-${last}`;
-}
-
-function DayList({
-  lines,
-  kind,
-  empty,
-}: {
-  lines: MonthScore["lines"];
-  kind: "done" | "miss";
-  empty: string;
-}) {
-  const shown = lines.filter((line) => (kind === "done" ? line.doneDays.length : line.missDays.length));
-  if (!shown.length) {
-    return (
-      <Text style={ui.body} testID={`score-${kind}-none`}>
-        {empty}
-      </Text>
-    );
-  }
+function ScoreTable({ score }: { score: MonthScore }) {
   return (
-    <View style={ui.stack}>
-      {shown.map((line) => {
-        const days = kind === "done" ? line.doneDays : line.missDays;
-        return (
-          <Text key={line.id} style={ui.body} testID={`score-${kind}-${line.id}`}>
-            {line.name} · {days.length} · {compactDays(days)}
-          </Text>
-        );
-      })}
+    <View style={table.box} testID="score-table">
+      <View style={[table.row, table.head]}>
+        <Text style={[table.habit, table.headText]}>Habit</Text>
+        <Text style={table.countHead}>Done</Text>
+        <Text style={table.countHead}>Miss</Text>
+        <Text style={table.countHead}>Percent</Text>
+      </View>
+      {score.lines.length ? (
+        score.lines.map((line) => {
+          const done = line.doneDays.length;
+          const miss = line.missDays.length;
+          const closed = done + miss;
+          const percent = closed === 0 ? null : Math.round((100 * done) / closed);
+          return (
+            <View
+              key={line.id}
+              style={table.row}
+              accessibilityLabel={`${line.name}, done ${done}, miss ${miss}${percent == null ? "" : `, ${percent} percent`}`}
+            >
+              <Text style={table.habit} numberOfLines={2}>
+                {line.name}
+              </Text>
+              <Text style={table.count} testID={`score-done-${line.id}`}>
+                {done}
+              </Text>
+              <Text style={table.count} testID={`score-miss-${line.id}`}>
+                {miss}
+              </Text>
+              <Text style={table.count} testID={`score-percent-${line.id}`}>
+                {percent == null ? "" : `${percent}%`}
+              </Text>
+            </View>
+          );
+        })
+      ) : (
+        <Text style={[ui.body, table.empty]} testID="score-done-none">
+          None
+        </Text>
+      )}
+      <View
+        style={[table.row, table.total]}
+        accessibilityLabel={`This month, done ${score.done}, miss ${score.miss}, ${score.percent ?? 0} percent`}
+      >
+        <Text style={table.habit}>This month</Text>
+        <Text style={table.count} testID="score-done">
+          {score.done}
+        </Text>
+        <Text style={table.count} testID="score-miss">
+          {score.miss}
+        </Text>
+        <Text style={table.count} testID="score-month-percent">
+          {score.percent == null ? "" : `${score.percent}%`}
+        </Text>
+      </View>
     </View>
   );
 }
+
+const table = StyleSheet.create({
+  box: {
+    borderWidth: 1,
+    borderColor: ink.line,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: ink.card,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: ink.line,
+  },
+  head: { borderTopWidth: 0 },
+  total: { backgroundColor: ink.ground },
+  habit: { flex: 1, color: ink.body, fontSize: 16, lineHeight: 22 },
+  headText: { color: ink.quiet, fontSize: 13, fontWeight: "600" },
+  count: { width: 64, textAlign: "right", color: ink.text, fontSize: 16, fontWeight: "700" },
+  countHead: { width: 64, textAlign: "right", color: ink.quiet, fontSize: 13, fontWeight: "600" },
+  empty: { paddingHorizontal: 12, paddingVertical: 8 },
+});

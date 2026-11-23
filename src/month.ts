@@ -46,6 +46,25 @@ export function shouldWrapDate(date: string, startedOn: string, today: string): 
   return date >= startedOn && date < today;
 }
 
+/** Shown before a habit is added, once, when those earlier days will count as not done. */
+export const EARLIER_DAYS_NOTE = "Earlier days of this month will count as not done.";
+
+/** True when a habit added now would leave earlier days of this month counting as not done. */
+export function earlierDaysCountAsNotDone(
+  year: number,
+  month: number,
+  startedOn: string | null,
+  now = new Date(),
+): boolean {
+  const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  const start = startedOn && startedOn.length > 0 ? startedOn : today;
+  const last = daysInMonth(year, month);
+  for (let day = 1; day <= last; day += 1) {
+    if (shouldWrapDate(dateFor(year, month, day), start, today)) return true;
+  }
+  return false;
+}
+
 /** The next calendar day, or null on the last day of the month. */
 export function nextDateInSameMonth(date: string): string | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);

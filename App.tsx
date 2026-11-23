@@ -7,6 +7,7 @@ import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
 import { setCueSound } from "./src/cues";
 import { DISPLAY_NAME_KEY, EVENING_HOUR_KEY, EVENING_MINUTE_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
+import { AddHabitScreen } from "./src/AddHabitScreen";
 import { HomeScreen } from "./src/HomeScreen";
 import { IdeasScreen } from "./src/IdeasScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
@@ -24,7 +25,8 @@ type BoundaryState = { message: string | null };
 type Prefs = { name: string | null; muted: boolean };
 type Place =
   | { kind: "home" }
-  | { kind: "today"; openAdd?: boolean }
+  | { kind: "today" }
+  | { kind: "add-habit"; monthId: string }
   | { kind: "score"; monthId?: string }
   | { kind: "ideas" }
   | { kind: "templates" }
@@ -204,7 +206,7 @@ function Shell() {
             name={prefs.name}
             onName={(name) => setPrefs({ ...prefs, name })}
             onOpenToday={() => push({ kind: "today" })}
-            onAddHabit={() => push({ kind: "today", openAdd: true })}
+            onAddHabit={() => push({ kind: "add-habit", monthId: todayId })}
             onOpenMonth={(monthId) => push({ kind: "month", monthId })}
             onOpenScore={() => push({ kind: "score" })}
             onGesture={onGesture}
@@ -214,8 +216,8 @@ function Shell() {
           <MonthScreen
             key={monthId}
             monthId={monthId}
-            openAdd={place.kind === "today" && place.openAdd === true}
             review={place.kind === "month"}
+            onAddHabit={() => push({ kind: "add-habit", monthId })}
             bindBack={bindBack}
             onOpenScore={
               place.kind === "month" ? () => push({ kind: "score", monthId: place.monthId }) : undefined
@@ -223,6 +225,13 @@ function Shell() {
           />
         ) : null}
         {!fatal && prefs && place.kind === "score" ? <ScoreScreen monthId={place.monthId} /> : null}
+        {!fatal && prefs && place.kind === "add-habit" ? (
+          <AddHabitScreen
+            monthId={place.monthId}
+            onDone={() => setStack((current) => (current.length > 1 ? current.slice(0, -1) : current))}
+            onGesture={onGesture}
+          />
+        ) : null}
         {!fatal && prefs && place.kind === "ideas" ? <IdeasScreen onGesture={onGesture} /> : null}
         {!fatal && prefs && place.kind === "profile" ? (
           <ProfileScreen

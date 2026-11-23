@@ -1109,7 +1109,6 @@ export async function addHabit(
   }
   const entry = entryForName(name, chosen);
   const tags = JSON.stringify(normalizeTags(rawTags));
-  await assertUnlocked(db, monthId);
   const max = await db.getFirstAsync<{ m: number | string | null }>(
     "SELECT MAX(sort_order) AS m FROM habits WHERE month_id = ?",
     monthId,
@@ -1234,7 +1233,6 @@ export async function renameHabit(
 ): Promise<{ entryChanged: boolean }> {
   const name = validateName(rawName);
   const habit = await requireHabit(db, monthId, habitId);
-  await assertUnlocked(db, monthId);
   const entry = entryForName(name, habit.entry);
   const entryChanged = entry !== habit.entry;
   await db.withTransactionAsync(async () => {
@@ -1266,7 +1264,6 @@ export async function removeHabit(
   monthId: string,
   habitId: string,
 ): Promise<void> {
-  await assertUnlocked(db, monthId);
   await db.withTransactionAsync(async () => {
     await db.runAsync("DELETE FROM day_records WHERE habit_id = ?", habitId);
     const result = await db.runAsync(
@@ -1284,7 +1281,6 @@ export async function moveHabit(
   habitId: string,
   direction: "up" | "down",
 ): Promise<void> {
-  await assertUnlocked(db, monthId);
   const habits = await db.getAllAsync<{ id: string; pinned: number | null }>(
     "SELECT id, pinned FROM habits WHERE month_id = ? ORDER BY pinned DESC, sort_order ASC, id ASC",
     monthId,
@@ -1894,7 +1890,6 @@ export async function reorderHabits(
   monthId: string,
   orderedIds: readonly string[],
 ): Promise<void> {
-  await assertUnlocked(db, monthId);
   await db.withTransactionAsync(async () => {
     for (let order = 0; order < orderedIds.length; order += 1) {
       const id = orderedIds[order];
@@ -1919,7 +1914,6 @@ export async function markDoneToday(
   if (now.getFullYear() !== Number(monthId.slice(0, 4)) || now.getMonth() + 1 !== Number(monthId.slice(5))) {
     throw new Error("That day is not on this grid.");
   }
-  await assertUnlocked(db, monthId);
   const day = now.getDate();
   if (habit.entry === "tick") {
     const date = dateInMonth(habit ? Number(monthId.slice(0, 4)) : 0, Number(monthId.slice(5)), day);
@@ -2374,15 +2368,6 @@ function readTemplateRows(value: unknown, templates: Set<string>): {
     const id = `restore-row-${index}`;
     return { id, templateId, name, sortOrder, entry, blank, tags: safeTags(row.tags) };
   });
-}
-
-async function assertUnlocked(db: SQLiteDatabase, monthId: string): Promise<void> {
-  const month = await db.getFirstAsync<{ locked: number }>(
-    "SELECT locked FROM months WHERE id = ?",
-    monthId,
-  );
-  if (!month) throw new Error("This month is not ready.");
-  if (Number(month.locked) === 1) throw new Error("Habits are locked.");
 }
 
 async function insertMark(

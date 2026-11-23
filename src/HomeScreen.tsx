@@ -11,7 +11,6 @@ import {
   markDoneToday,
   openAppDatabase,
   readSetting,
-  setLocked,
   wrapToday,
   writeSetting,
   type DashboardState,
@@ -19,7 +18,7 @@ import {
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { greetingLine } from "./greet";
 import { paintDoneToday } from "./markPaint";
-import { dateFor, monthTitle } from "./month";
+import { dateFor, EARLIER_DAYS_NOTE, earlierDaysCountAsNotDone, monthTitle } from "./month";
 import { validateCallName } from "./names";
 import { syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
 import { playNight } from "./cues";
@@ -52,7 +51,9 @@ export function HomeScreen({
     setBannerState(text == null ? null : { text, failed });
   }
   const [suggestionShift, setSuggestionShift] = useState(0);
+  const [suggestionAccepted, setSuggestionAccepted] = useState<string | null>(null);
   const marking = useRef(new Set<string>());
+  const addingSuggestion = useRef(false);
 
   useEffect(() => {
     let live = true;
@@ -139,17 +140,31 @@ export function HomeScreen({
   }
 
   function addSuggestion(item: HabitSuggestion) {
-    if (!board) return;
+    if (!board || addingSuggestion.current) return;
     onGesture();
+    const midMonth = earlierDaysCountAsNotDone(
+      board.current.year,
+      board.current.month,
+      board.current.startedOn,
+    );
+    if (midMonth && suggestionAccepted !== item.name) {
+      setSuggestionAccepted(item.name);
+      return;
+    }
+    addingSuggestion.current = true;
     void openAppDatabase()
       .then((database) => addHabit(database, board.current.id, item.name, item.entry, []))
       .then(() => openAppDatabase())
       .then((database) => loadDashboard(database))
       .then((next) => {
+        setSuggestionAccepted(null);
         setBoard(next);
         setBanner(`${item.name} is on this month.`);
       })
-      .catch((error: unknown) => setBanner(errorText(error), true));
+      .catch((error: unknown) => setBanner(errorText(error), true))
+      .finally(() => {
+        addingSuggestion.current = false;
+      });
   }
 
   function closeNight() {
@@ -159,7 +174,6 @@ export function HomeScreen({
     void openAppDatabase()
       .then(async (database) => {
         await wrapToday(database, board.current.id, board.current.year, board.current.month);
-        await setLocked(database, board.current.id, true);
         for (const habit of board.current.habits) {
           if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) continue;
           await syncDailyReminder({
@@ -315,8 +329,10 @@ export function HomeScreen({
         <SuggestionCard
           names={board.current.habits.map((habit) => habit.name)}
           shift={suggestionShift}
+          acceptedName={suggestionAccepted}
           onAnother={() => {
             onGesture();
+            setSuggestionAccepted(null);
             setSuggestionShift((current) => current + 1);
           }}
           onAdd={addSuggestion}
@@ -395,11 +411,13 @@ function HomeLine({ text, failed }: { text: string | null; failed: boolean }) {
 function SuggestionCard({
   names,
   shift,
+  acceptedName,
   onAnother,
   onAdd,
 }: {
   names: readonly string[];
   shift: number;
+  acceptedName: string | null;
   onAnother: () => void;
   onAdd: (item: HabitSuggestion) => void;
 }) {
@@ -411,6 +429,11 @@ function SuggestionCard({
       <Text style={ui.section}>A habit people keep</Text>
       <Text style={ui.body}>{item.name}</Text>
       <Text style={ui.quiet}>{item.line}</Text>
+      {acceptedName === item.name ? (
+        <Text style={ui.note} testID="home-earlier-days">
+          {EARLIER_DAYS_NOTE}
+        </Text>
+      ) : null}
       <View style={ui.row}>
         <Pressable
           style={ui.button}

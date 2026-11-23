@@ -31,7 +31,6 @@ import {
   normalizeChecklist,
 } from "./checklist";
 import {
-  addHabit,
   clearCell,
   canUndoMark,
   clearSetting,
@@ -43,9 +42,6 @@ import {
   openMonth,
   readSetting,
   reorderHabits,
-  saveBackup,
-  restoreBackup,
-  listBackupNames,
   listAllowsMore,
   allowMoreOnList,
   dayAllowsMore,
@@ -62,7 +58,6 @@ import {
   setCarryForward,
   setFollowUpHours,
   setHabitTags,
-  setLocked,
   setReminder,
   setTickNote,
   setTime,
@@ -72,17 +67,16 @@ import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
 import { cycleTickMonth } from "./markPaint";
 import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./month";
-import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
+import { NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, reminderIsScheduled, syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
-import { ADD_PRESETS, nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
+import { nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { playNight, playTick } from "./cues";
 import { countsAsMiss, shownMark } from "./tally";
 import { easeSentence, scoreStoredMonth, weeklyEase } from "./score";
 import { reminderNote } from "./reminderWhen";
-import { suggestionsNotKept } from "./suggestions";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 
@@ -123,16 +117,16 @@ function monthWrappedToday(
 
 export function MonthScreen({
   monthId,
-  openAdd = false,
   review = false,
   bindBack,
   onOpenScore,
+  onAddHabit,
 }: {
   monthId: string;
-  openAdd?: boolean;
   review?: boolean;
   bindBack?: (handler: (() => boolean) | null) => void;
   onOpenScore?: () => void;
+  onAddHabit: () => void;
 }) {
   const windowWidth = useWindowDimensions().width;
   const dbRef = useRef<SQLiteDatabase | null>(null);
@@ -145,7 +139,6 @@ export function MonthScreen({
   function setBanner(text: string | null, failed = false) {
     setBannerState(text == null ? null : { text, failed });
   }
-  const [addOpen, setAddOpen] = useState(openAdd);
   const [timeEdit, setTimeEdit] = useState<
     { mode: "cell"; habit: Habit; day: number } | { mode: "reminder"; habit: Habit } | null
   >(null);
@@ -161,7 +154,6 @@ export function MonthScreen({
   const [undoReady, setUndoReady] = useState(false);
   const [sample, setSample] = useState(false);
   const [more, setMore] = useState(false);
-  const [restoreArmed, setRestoreArmed] = useState(false);
   const checklistRef = useRef(checklistEdit);
   checklistRef.current = checklistEdit;
   const monthRef = useRef<MonthState | null>(null);
@@ -268,7 +260,7 @@ export function MonthScreen({
     : null;
   const gridMonth = month;
   const readOnly = review && !editingPast;
-  const frozen = readOnly || month.locked;
+  const frozen = readOnly;
   const needle = query.trim().toLowerCase();
   const visibleHabits = month.habits.filter((habit) => {
     if (needle && !habit.name.toLowerCase().includes(needle)) return false;
@@ -601,56 +593,6 @@ export function MonthScreen({
                 </Text>
               </Pressable>
             )}
-            <View style={styles.actions}>
-              <Pressable
-                style={styles.button}
-                accessibilityLabel="Save backup"
-                testID="save-backup"
-                onPress={() => {
-                  void enqueue(async (database) => {
-                    const name = await saveBackup(database);
-                    setBanner(`Saved ${name} on this phone.`);
-                    setRestoreArmed(false);
-                  }).catch(() => undefined);
-                }}
-              >
-                <Text style={styles.buttonText}>Save backup</Text>
-              </Pressable>
-              {restoreArmed ? (
-                <>
-                  <Text style={styles.quiet}>This replaces the log on this phone.</Text>
-                  <Pressable
-                    style={styles.button}
-                    accessibilityLabel="Confirm restore"
-                    testID="confirm-restore"
-                    onPress={() => {
-                      const name = listBackupNames()[0];
-                      if (!name) {
-                        setBanner("No backup is saved on this phone.", true);
-                        setRestoreArmed(false);
-                        return;
-                      }
-                      void enqueue(async (database) => {
-                        await restoreBackup(database, name);
-                        setBanner("Restored on this phone.");
-                        setRestoreArmed(false);
-                      }).catch(() => undefined);
-                    }}
-                  >
-                    <Text style={styles.buttonText}>Confirm restore</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel="Restore latest"
-                  testID="restore-backup"
-                  onPress={() => setRestoreArmed(true)}
-                >
-                  <Text style={styles.buttonText}>Restore latest</Text>
-                </Pressable>
-              )}
-            </View>
           </>
         ) : null}
         {banner ? (
@@ -664,12 +606,7 @@ export function MonthScreen({
               style={styles.button}
               accessibilityLabel="Edit"
               testID="edit-month"
-              onPress={() => {
-                setEditingPast(true);
-                if (month.locked) {
-                  void enqueue((database) => setLocked(database, month.id, false)).catch(() => undefined);
-                }
-              }}
+              onPress={() => setEditingPast(true)}
             >
               <Text style={styles.buttonText}>Edit</Text>
             </Pressable>
@@ -679,7 +616,7 @@ export function MonthScreen({
                 <Pressable
                   style={styles.button}
                   accessibilityLabel="Add habit"
-                  onPress={() => setAddOpen(true)}
+                  onPress={onAddHabit}
                   testID="add-row"
                 >
                   <Text style={styles.buttonText}>Add habit</Text>
@@ -690,27 +627,11 @@ export function MonthScreen({
                   style={styles.button}
                   accessibilityLabel="Done"
                   testID="done-edit"
-                  onPress={() => {
-                    setEditingPast(false);
-                    void enqueue((database) => setLocked(database, month.id, true)).catch(() => undefined);
-                  }}
+                  onPress={() => setEditingPast(false)}
                 >
                   <Text style={styles.buttonText}>Done</Text>
                 </Pressable>
-              ) : (
-                <Pressable
-                  style={styles.button}
-                  accessibilityLabel={month.locked ? "Unlock habits" : "Lock habits"}
-                  testID="lock-rows"
-                  onPress={() => {
-                    void enqueue((database) => setLocked(database, month.id, !month.locked)).catch(
-                      () => undefined,
-                    );
-                  }}
-                >
-                  <Text style={styles.buttonText}>{month.locked ? "Unlock habits" : "Lock habits"}</Text>
-                </Pressable>
-              )}
+              ) : null}
               {review ? null : (
                 <Pressable
                   style={[styles.button, styles.buttonOn]}
@@ -719,7 +640,6 @@ export function MonthScreen({
                   onPress={() => {
                     void enqueue(async (database) => {
                       await wrapToday(database, month.id, month.year, month.month);
-                      await setLocked(database, month.id, true);
                       for (const habit of month.habits) {
                         if (habit.entry !== "timer" || habit.reminderHour == null || habit.reminderMinute == null) {
                           continue;
@@ -770,26 +690,13 @@ export function MonthScreen({
             style={styles.button}
             accessibilityLabel={more ? "Less" : "More"}
             testID="more-controls"
-            onPress={() => {
-              setMore((open) => !open);
-              setRestoreArmed(false);
-            }}
+            onPress={() => setMore((open) => !open)}
           >
             <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
           </Pressable>
         </View>
       </View>
 
-      {addOpen ? (
-        <AddDialog
-          existingNames={month.habits.map((habit) => habit.name)}
-          onClose={() => setAddOpen(false)}
-          onSave={async (name, entry, tags) => {
-            await enqueue((database) => addHabit(database, month.id, name, entry, tags));
-            setAddOpen(false);
-          }}
-        />
-      ) : null}
       {editingHabit ? (
         <RenameDialog
           habit={editingHabit}
@@ -1265,162 +1172,6 @@ function DayCell({
   );
 }
 
-function AddDialog({
-  existingNames,
-  onClose,
-  onSave,
-}: {
-  existingNames: readonly string[];
-  onClose: () => void;
-  onSave: (name: string, entry: Entry, tags: string[]) => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [chosen, setChosen] = useState<Entry>("tick");
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagDraft, setTagDraft] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const reserved = isReservedTimeName(name);
-  const entry: Entry = reserved ? "timer" : chosen;
-  const ideas = suggestionsNotKept(existingNames).slice(0, 4);
-  return (
-    <Dialog
-      title="Add habit"
-      onClose={onClose}
-      footer={
-        <View style={styles.actions}>
-          <Pressable
-            style={[styles.button, styles.buttonOn]}
-            testID="add-save"
-            onPress={() => {
-              void onSave(name, entry, tags).catch((error: unknown) => setMessage(errorText(error)));
-            }}
-          >
-            <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
-          </Pressable>
-          <Pressable style={styles.button} onPress={onClose}>
-            <Text style={styles.buttonText}>Cancel</Text>
-          </Pressable>
-        </View>
-      }
-    >
-      {ideas.length ? (
-        <>
-          <Text style={styles.fieldLabel}>People keep these</Text>
-          <View style={styles.actions}>
-            {ideas.map((idea) => (
-              <Pressable
-                key={idea.name}
-                testID={`suggest-${idea.name.toLowerCase().replace(/\s+/g, "-")}`}
-                style={styles.button}
-                onPress={() => {
-                  setName(idea.name);
-                  setChosen(idea.entry);
-                  setMessage(null);
-                }}
-              >
-                <Text style={styles.buttonText}>{idea.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </>
-      ) : null}
-      <View style={styles.actions}>
-        {ADD_PRESETS.map((preset) => (
-          <Pressable
-            key={preset.name}
-            testID={`preset-${preset.name.toLowerCase()}`}
-            style={styles.button}
-            onPress={() => {
-              setChosen("tick");
-              setTags((current) => {
-                const withoutPreset = current.filter(
-                  (tag) => !ADD_PRESETS.some((item) => item.tag.toLowerCase() === tag.toLowerCase()),
-                );
-                const next = nextTags(withoutPreset, preset.tag);
-                setMessage(next.refused ? TAG_LIMIT_NOTE : null);
-                return next.tags;
-              });
-            }}
-          >
-            <Text style={styles.buttonText}>
-              {preset.name} · {preset.tag}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <TextInput
-        testID="add-name"
-        value={name}
-        onChangeText={(value) => {
-          setName(value);
-          setMessage(null);
-        }}
-        placeholder="Row name"
-        maxLength={NAME_MAX}
-        autoCorrect={false}
-        style={styles.input}
-      />
-      <View style={styles.actions}>
-        {(["tick", "timer", "journal", "checklist"] as const).map((kind) => (
-          <Pressable
-            key={kind}
-            testID={`add-kind-${kind}`}
-            disabled={reserved && kind !== "timer"}
-            onPress={() => setChosen(kind)}
-            style={[styles.button, entry === kind && styles.buttonOn]}
-          >
-            <Text style={[styles.buttonText, entry === kind && styles.buttonOnText]}>
-              {kindLabel(kind)}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={styles.hint}>
-        {entry === "checklist"
-          ? "Subtasks sit under this row."
-          : reserved
-            ? "Wake up and Sleep Time are timers."
-            : "The name stays what you type."}
-      </Text>
-      <Text style={styles.fieldLabel}>Tags</Text>
-      <View style={styles.chips}>
-        {tags.map((tag) => (
-          <Pressable key={tag} style={styles.chip} onPress={() => setTags(tags.filter((item) => item !== tag))}>
-            <Text style={styles.chipText}>{tag}  x</Text>
-          </Pressable>
-        ))}
-        {tags.length ? null : <Text style={styles.kind}>None yet</Text>}
-      </View>
-      <View style={styles.reorder}>
-        <TextInput
-          testID="tag-draft"
-          value={tagDraft}
-          onChangeText={setTagDraft}
-          placeholder="Add a tag"
-          maxLength={TAG_MAX}
-          style={styles.tagInput}
-        />
-        <Pressable
-          style={styles.button}
-          testID="add-tag"
-          onPress={() => {
-            const next = nextTags(tags, tagDraft);
-            setTags(next.tags);
-            setMessage(next.refused ? TAG_LIMIT_NOTE : null);
-            if (!next.refused) setTagDraft("");
-          }}
-        >
-          <Text style={styles.buttonText}>Add</Text>
-        </Pressable>
-      </View>
-      {message ? (
-        <Text style={styles.banner} testID="tag-limit-note">
-          {message}
-        </Text>
-      ) : null}
-    </Dialog>
-  );
-}
 
 function RenameDialog({
   habit,
