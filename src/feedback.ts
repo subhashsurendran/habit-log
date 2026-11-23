@@ -61,6 +61,7 @@ export function supportPageResult(text: string): SupportPage {
   if (lower.includes("needs activation") || lower.includes("activate form")) return "activate";
   if (lower.includes("make sure you open this page through a web server")) return "failed";
   if (
+    lower.includes("the form was submitted successfully") ||
     lower.includes("your message has been sent") ||
     lower.includes("submission has been received") ||
     lower.includes("thanks for using formsubmit") ||
