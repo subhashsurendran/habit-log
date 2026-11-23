@@ -11,7 +11,7 @@
       "bundleIdentifier": "com.gosubhash31.habit-log",
       "appleTeamId": "FDVKXNCHTF",
       "supportsTablet": false,
-      "buildNumber": "9",
+      "buildNumber": "11",
       "infoPlist": {
         "CFBundleDisplayName": "MyDTC",
         "NSCameraUsageDescription": "MyDTC uses the camera for a journal photo stored on this phone.",
