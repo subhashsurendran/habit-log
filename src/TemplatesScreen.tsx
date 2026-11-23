@@ -106,6 +106,10 @@ export function TemplatesScreen({
 
   function save() {
     onGesture();
+    if (rows.length === 0) {
+      setBanner("Add a habit before saving.", true);
+      return;
+    }
     void openAppDatabase()
       .then((database) =>
         templateId
@@ -180,6 +184,104 @@ export function TemplatesScreen({
   const targetMonth = markedMonth ? nextMonth() : currentMonth();
   const targetTitle = monthTitle(targetMonth.year, targetMonth.month);
 
+  if (editing) {
+    return (
+      <ScrollView
+        style={ui.screen}
+        contentContainerStyle={ui.page}
+        keyboardShouldPersistTaps="handled"
+        testID="template-editor"
+      >
+        <Text style={ui.title} accessibilityRole="header">
+          {templateId ? "Edit template" : "New template"}
+        </Text>
+        {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
+        <TextInput
+          testID="template-name"
+          value={name}
+          onChangeText={(value) => {
+            setName(value);
+            setBanner(null);
+          }}
+          onFocus={onGesture}
+          placeholder="Template name"
+          placeholderTextColor="#8A7A9E"
+          maxLength={NAME_MAX}
+          autoCorrect={false}
+          style={ui.input}
+        />
+        <TextInput
+          testID="template-habit-name"
+          value={habitName}
+          onChangeText={setHabitName}
+          onFocus={onGesture}
+          placeholder="Habit name"
+          placeholderTextColor="#8A7A9E"
+          maxLength={NAME_MAX}
+          autoCorrect={false}
+          style={ui.input}
+        />
+        <View style={ui.row}>
+          {KINDS.map((kind) => (
+            <Pressable
+              key={kind}
+              testID={`template-kind-${kind}`}
+              accessibilityLabel={kindLabel(kind)}
+              style={[ui.chip, entry === kind && ui.chipOn]}
+              onPress={() => {
+                onGesture();
+                setEntry(kind);
+              }}
+            >
+              <Text style={entry === kind ? ui.chipOnText : ui.chipText}>{kindLabel(kind)}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable style={ui.addHabit} testID="template-add-habit" onPress={addHabit}>
+          <Text style={ui.addHabitText}>Add habit</Text>
+        </Pressable>
+        {rows.length === 0 ? (
+          <Text style={ui.quiet} testID="template-empty">
+            Nothing added yet.
+          </Text>
+        ) : (
+          rows.map((row, index) => (
+            <View key={`${row.name}-${index}`} style={ui.row}>
+              <Text style={ui.body}>
+                {row.name} · {kindLabel(row.entry)}
+              </Text>
+              <Pressable
+                testID={`template-draft-remove-${index}`}
+                onPress={() => setRows((current) => current.filter((_, item) => item !== index))}
+              >
+                <Text style={ui.quiet}>Remove</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+        <Pressable style={ui.primary} testID="template-save" onPress={save}>
+          <Text style={ui.primaryText}>Save</Text>
+        </Pressable>
+        <Pressable
+          style={ui.button}
+          testID="template-cancel"
+          onPress={() => {
+            onGesture();
+            setBanner(null);
+            onDone();
+          }}
+        >
+          <Text style={ui.buttonText}>Cancel</Text>
+        </Pressable>
+        {banner ? (
+          <Text style={banner.failed ? ui.banner : ui.note} testID="template-line">
+            {banner.text}
+          </Text>
+        ) : null}
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView
       style={ui.screen}
@@ -196,80 +298,7 @@ export function TemplatesScreen({
         </Text>
       </View>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
-      {editing ? (
-        <View style={ui.stack} testID="template-editor">
-          <TextInput
-            testID="template-name"
-            value={name}
-            onChangeText={(value) => {
-              setName(value);
-              setBanner(null);
-            }}
-            onFocus={onGesture}
-            placeholder="Template name"
-            placeholderTextColor="#8A7A9E"
-            maxLength={NAME_MAX}
-            autoCorrect={false}
-            style={ui.input}
-          />
-          {rows.map((row, index) => (
-            <View key={`${row.name}-${index}`} style={ui.row}>
-              <Text style={ui.body}>
-                {row.name} · {kindLabel(row.entry)}
-              </Text>
-              <Pressable
-                testID={`template-draft-remove-${index}`}
-                onPress={() => setRows((current) => current.filter((_, item) => item !== index))}
-              >
-                <Text style={ui.quiet}>Remove</Text>
-              </Pressable>
-            </View>
-          ))}
-          <TextInput
-            testID="template-habit-name"
-            value={habitName}
-            onChangeText={setHabitName}
-            onFocus={onGesture}
-            placeholder="Habit name"
-            placeholderTextColor="#8A7A9E"
-            maxLength={NAME_MAX}
-            autoCorrect={false}
-            style={ui.input}
-          />
-          <View style={ui.row}>
-            {KINDS.map((kind) => (
-              <Pressable
-                key={kind}
-                testID={`template-kind-${kind}`}
-                style={[ui.button, entry === kind && { borderColor: "#3DDC97" }]}
-                onPress={() => {
-                  onGesture();
-                  setEntry(kind);
-                }}
-              >
-                <Text style={ui.buttonText}>{kindLabel(kind)}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <Pressable style={ui.button} testID="template-add-habit" onPress={addHabit}>
-            <Text style={ui.buttonText}>Add habit</Text>
-          </Pressable>
-          <Pressable style={ui.primary} testID="template-save" onPress={save}>
-            <Text style={ui.primaryText}>Save</Text>
-          </Pressable>
-          <Pressable
-            style={ui.button}
-            testID="template-cancel"
-            onPress={() => {
-              onGesture();
-              setBanner(null);
-              onDone();
-            }}
-          >
-            <Text style={ui.buttonText}>Cancel</Text>
-          </Pressable>
-        </View>
-      ) : board && board.templates.length >= TEMPLATE_LIMIT ? (
+      {board && board.templates.length >= TEMPLATE_LIMIT ? (
         <Text style={ui.quiet} testID="template-limit">
           Three templates is the limit.
         </Text>

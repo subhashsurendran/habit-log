@@ -70,6 +70,7 @@ import {
 } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
+import { cycleTickMonth } from "./markPaint";
 import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./month";
 import { isReservedTimeName, NAME_MAX, testSlug } from "./names";
 import { cancelHabitNotifications, reminderIsScheduled, syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
@@ -163,6 +164,9 @@ export function MonthScreen({
   const [restoreArmed, setRestoreArmed] = useState(false);
   const checklistRef = useRef(checklistEdit);
   checklistRef.current = checklistEdit;
+  const monthRef = useRef<MonthState | null>(null);
+  const pendingMarks = useRef(0);
+  const markGen = useRef(0);
 
   useEffect(() => {
     let live = true;
@@ -170,7 +174,9 @@ export function MonthScreen({
       .then(async (database) => {
         if (!live) return;
         dbRef.current = database;
-        setMonth(await openMonth(database, monthId));
+        const opened = await openMonth(database, monthId);
+        monthRef.current = opened;
+        setMonth(opened);
         const flagged = await readSetting(database, SAMPLE_MONTH_KEY);
         if (live) setSample(flagged === monthId);
         const hour = await readSetting(database, EVENING_HOUR_KEY);
@@ -206,13 +212,23 @@ export function MonthScreen({
     return map;
   }, [month]);
 
-  function enqueue<T>(task: (database: SQLiteDatabase) => Promise<T>): Promise<T> {
+  function publishMonth(next: MonthState) {
+    monthRef.current = next;
+    setMonth(next);
+  }
+
+  function enqueue<T>(task: (database: SQLiteDatabase) => Promise<T>, quiet = false): Promise<T> {
     const database = dbRef.current;
-    if (!database || !month) return Promise.reject(new Error("The month is not open."));
+    const open = monthRef.current;
+    if (!database || !open) return Promise.reject(new Error("The month is not open."));
     const run = queue.current.then(async () => {
-      setBanner(null);
+      if (!quiet) setBanner(null);
       const result = await task(database);
-      setMonth(await openMonth(database, month.id));
+      const seen = markGen.current;
+      if (pendingMarks.current !== 0) return result;
+      const fresh = await openMonth(database, open.id);
+      if (pendingMarks.current !== 0 || markGen.current !== seen) return result;
+      publishMonth(fresh);
       setUndoReady(canUndoMark());
       return result;
     });
@@ -469,32 +485,59 @@ export function MonthScreen({
                             setChecklistEdit({ habit, day });
                             return;
                           }
+                          const open = monthRef.current;
+                          if (!open) return;
+                          setBanner(null);
+                          const date = dateFor(open.year, open.month, day);
+                          const painted = cycleTickMonth(open, habit.id, date);
+                          publishMonth(painted.month);
+                          if (painted.outcome === "tick") playTick();
+                          if (painted.outcome === "tick" || painted.outcome === "cross") {
+                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+                              () => undefined,
+                            );
+                          }
+                          const gen = markGen.current;
+                          pendingMarks.current += 1;
+                          const snapshot = open;
                           void enqueue(async (database) => {
+                            if (gen !== markGen.current) return;
                             const outcome = await cycleTick(
                               database,
-                              month.id,
+                              open.id,
                               habit.id,
-                              month.year,
-                              month.month,
+                              open.year,
+                              open.month,
                               day,
                             );
-                            if (outcome === "tick") playTick();
-                            if (outcome === "tick" || outcome === "cross") {
-                              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
-                                () => undefined,
-                              );
-                            }
+                            if (gen !== markGen.current) return;
                             const result = await syncFollowUp({
                               habitId: habit.id,
                               habitName: habit.name,
-                              date: dateFor(month.year, month.month, day),
+                              date,
                               hours: habit.followUpHours,
                               completed: outcome === "tick",
                             });
                             if (result === "unavailable") {
                               setBanner("Saved. The notification was not scheduled.", true);
                             }
-                          }).catch(() => undefined);
+                            pendingMarks.current = Math.max(0, pendingMarks.current - 1);
+                          }, true).catch(() => {
+                            if (gen !== markGen.current) return;
+                            markGen.current += 1;
+                            pendingMarks.current = 0;
+                            const database = dbRef.current;
+                            if (!database) {
+                              publishMonth(snapshot);
+                              return;
+                            }
+                            void openMonth(database, snapshot.id)
+                              .then((fresh) => {
+                                publishMonth(fresh);
+                                setUndoReady(canUndoMark());
+                              })
+                              .catch(() => publishMonth(snapshot));
+                          });
                         }}
                         onLongPress={() => {
                           if (frozen) return;

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, writeSetting } from "./db";
 import { errorText } from "./errors";
-import { openWriteToUs } from "./feedback";
+import { sendSupportNote } from "./feedback";
 import { validateCallName } from "./names";
 import { ui } from "./theme";
 
@@ -116,27 +116,60 @@ export function ProfileScreen({
 }
 
 function WriteToUs({ onGesture }: { onGesture: () => void }) {
-  const [missed, setMissed] = useState(false);
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [line, setLine] = useState<{ text: string; failed: boolean } | null>(null);
 
-  function write() {
+  function send() {
     onGesture();
-    setMissed(false);
-    void openWriteToUs().catch(() => setMissed(true));
+    if (!note.trim() || sending) {
+      if (!note.trim()) setLine({ text: "Write a note before sending.", failed: true });
+      return;
+    }
+    setSending(true);
+    setLine(null);
+    void sendSupportNote(note)
+      .then(() => {
+        setNote("");
+        setLine({ text: "Sent.", failed: false });
+      })
+      .catch((error: unknown) => setLine({ text: errorText(error), failed: true }))
+      .finally(() => setSending(false));
   }
 
   return (
     <View style={ui.card} testID="write-to-us">
       <Text style={ui.section}>Write to us</Text>
-      <Text style={ui.body}>A note or an idea. The habit log stays on this phone.</Text>
+      <Text style={ui.body}>A note or an idea. It goes to support@mydtc-app.com. The habit log stays on this phone.</Text>
+      <TextInput
+        testID="write-to-us-note"
+        value={note}
+        onChangeText={(value) => {
+          setNote(value);
+          setLine(null);
+        }}
+        onFocus={onGesture}
+        placeholder="Note"
+        placeholderTextColor="#8A7A9E"
+        maxLength={2000}
+        multiline
+        editable={!sending}
+        style={ui.noteBox}
+      />
       <Pressable
-        style={ui.button}
-        testID="write-to-us-button"
-        accessibilityLabel="Write to us"
-        onPress={write}
+        style={ui.primary}
+        testID="write-to-us-send"
+        accessibilityLabel="Send"
+        disabled={sending}
+        onPress={send}
       >
-        <Text style={ui.buttonText}>Write to us</Text>
+        <Text style={ui.primaryText}>{sending ? "Sending…" : "Send"}</Text>
       </Pressable>
-      {missed ? <Text style={ui.banner}>Mail could not open.</Text> : null}
+      {line ? (
+        <Text style={line.failed ? ui.banner : ui.note} testID="write-to-us-line">
+          {line.text}
+        </Text>
+      ) : null}
     </View>
   );
 }

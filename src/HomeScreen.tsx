@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 
 import { BrandLockup } from "./BrandLockup";
@@ -18,6 +18,7 @@ import {
 } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { greetingLine } from "./greet";
+import { paintDoneToday } from "./markPaint";
 import { dateFor, monthTitle } from "./month";
 import { validateCallName } from "./names";
 import { syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
@@ -51,6 +52,7 @@ export function HomeScreen({
     setBannerState(text == null ? null : { text, failed });
   }
   const [suggestionShift, setSuggestionShift] = useState(0);
+  const marking = useRef(new Set<string>());
 
   useEffect(() => {
     let live = true;
@@ -89,7 +91,7 @@ export function HomeScreen({
   }
 
   function markOpen(habit: OpenHabit) {
-    if (!board) return;
+    if (!board || marking.current.has(habit.id)) return;
     onGesture();
     if (habit.entry !== "tick" && habit.entry !== "timer") {
       onOpenToday();
@@ -97,10 +99,18 @@ export function HomeScreen({
     }
     const today = new Date();
     const monthId = board.current.id;
+    marking.current.add(habit.id);
+    setBoard((current) => {
+      if (!current) return current;
+      const painted = paintDoneToday(current.current, habit.id, habit.entry, today);
+      if (!painted) return current;
+      return { ...current, current: painted };
+    });
     void openAppDatabase()
       .then(async (database) => {
         const entry = await markDoneToday(database, monthId, habit.id, today);
         if (!entry) {
+          setBoard(await loadDashboard(database));
           setBanner("Add a line on Today first.", true);
           return;
         }
@@ -114,7 +124,18 @@ export function HomeScreen({
         setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null, result === "unavailable");
         setBoard(await loadDashboard(database));
       })
-      .catch((error: unknown) => setBanner(errorText(error), true));
+      .catch(async (error: unknown) => {
+        setBanner(errorText(error), true);
+        try {
+          const database = await openAppDatabase();
+          setBoard(await loadDashboard(database));
+        } catch {
+          // The line already says the save failed.
+        }
+      })
+      .finally(() => {
+        marking.current.delete(habit.id);
+      });
   }
 
   function addSuggestion(item: HabitSuggestion) {
