@@ -1,16 +1,16 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { ink } from "./theme";
+import { ink, ui } from "./theme";
 
 /** Sits in the layout, above the screen, so it does not cover the grid or the tab bar. */
 export function ScreenNav({ onBack, onExit }: { onBack: () => void; onExit: () => void }) {
   return (
     <View style={styles.bar} testID="screen-nav">
-      <Pressable style={styles.button} testID="back" onPress={onBack} accessibilityLabel="Back">
-        <Text style={styles.label}>Back</Text>
+      <Pressable style={ui.button} testID="back" onPress={onBack} accessibilityLabel="Back">
+        <Text style={ui.buttonText}>Back</Text>
       </Pressable>
-      <Pressable style={styles.button} testID="exit" onPress={onExit} accessibilityLabel="Exit">
-        <Text style={styles.label}>Exit</Text>
+      <Pressable style={ui.button} testID="exit" onPress={onExit} accessibilityLabel="Exit">
+        <Text style={ui.buttonText}>Exit</Text>
       </Pressable>
     </View>
   );
@@ -26,14 +26,4 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     backgroundColor: ink.ground,
   },
-  button: {
-    height: 44,
-    justifyContent: "center",
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: ink.bezel,
-    borderRadius: 10,
-    backgroundColor: ink.card,
-  },
-  label: { color: ink.text, fontSize: 14, fontWeight: "700" },
 });

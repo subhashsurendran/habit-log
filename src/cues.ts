@@ -13,9 +13,18 @@ const night: Cue = { source: nightSource, player: null };
 
 let soundOn = false;
 
-/** Buffer the local cues once. This does not play them. */
-void preload(tickSource).catch(() => undefined);
-void preload(nightSource).catch(() => undefined);
+/** Buffer the local cues once. This does not play them. Web preload may return nothing. */
+function bufferCue(source: number): void {
+  try {
+    const pending = preload(source) as Promise<void> | undefined;
+    if (pending && typeof pending.catch === "function") void pending.catch(() => undefined);
+  } catch {
+    // The cue can still be created when it is played.
+  }
+}
+
+bufferCue(tickSource);
+bufferCue(nightSource);
 
 /** Sound stays off until Profile turns it on. Does not play. */
 export function setCueSound(on: boolean): void {

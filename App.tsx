@@ -254,8 +254,8 @@ function Shell() {
             age={prefs.age}
             sex={prefs.sex}
             muted={prefs.muted}
-            onFacts={(facts) => setPrefs({ ...prefs, ...facts })}
-            onMuted={(muted) => setPrefs({ ...prefs, muted })}
+            onFacts={(facts) => setPrefs((current) => (current ? { ...current, ...facts } : current))}
+            onMuted={(muted) => setPrefs((current) => (current ? { ...current, muted } : current))}
             onGesture={onGesture}
             onStart={() => previewCueSound()}
             onStop={() => {

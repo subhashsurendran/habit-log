@@ -8,6 +8,7 @@ import { OPEN_FAILED } from "./errors";
 
 const KEY_NAME = "habit-log-db-key";
 const SEALED_NAME = "habit-log.sealed";
+const WEB_SEAL = "habit-log-sealed";
 const MAGIC = [0x48, 0x4c, 0x47, 0x31];
 
 type CreatableDir = Directory & {
@@ -82,13 +83,29 @@ export function openDatabaseSeal(sealed: Uint8Array, key: Uint8Array): Uint8Arra
   return decryptAesGcm(key, iv, cipher, tag);
 }
 
+function readWebSeal(): Uint8Array | null {
+  const raw = globalThis.localStorage?.getItem(WEB_SEAL);
+  if (!raw) return null;
+  return b64ToBytes(raw);
+}
+
 export async function readSealed(): Promise<Uint8Array | null> {
+  if (Platform.OS === "web") return readWebSeal();
   const file = sealedFile();
   if (!file?.exists) return null;
   return new Uint8Array(await file.arrayBuffer());
 }
 
 export async function writeSealed(bytes: Uint8Array): Promise<void> {
+  if (Platform.OS === "web") {
+    const storage = globalThis.localStorage;
+    if (!storage) throw new Error(OPEN_FAILED);
+    const encoded = bytesToB64(bytes);
+    storage.setItem(WEB_SEAL, encoded);
+    const check = storage.getItem(WEB_SEAL);
+    if (check == null || !equalBytes(b64ToBytes(check), bytes)) throw new Error(OPEN_FAILED);
+    return;
+  }
   const file = sealedFile();
   if (!file) throw new Error(OPEN_FAILED);
   if (file.exists) file.delete();

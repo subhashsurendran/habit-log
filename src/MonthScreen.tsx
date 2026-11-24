@@ -79,6 +79,7 @@ import { easeSentence, scoreStoredMonth, weeklyEase } from "./score";
 import { reminderNote } from "./reminderWhen";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
+import { ui } from "./theme";
 
 const LABEL_W = 168;
 const LABEL_MIN = 120;
@@ -563,32 +564,32 @@ export function MonthScreen({
                 <Pressable
                   accessibilityLabel="All habits"
                   testID="tag-filter-all"
-                  style={[styles.button, tagFilter == null && styles.buttonOn]}
+                  style={tagFilter == null ? ui.primary : ui.button}
                   onPress={() => setTagFilter(null)}
                 >
-                  <Text style={styles.buttonText}>All</Text>
+                  <Text style={tagFilter == null ? ui.primaryText : ui.buttonText}>All</Text>
                 </Pressable>
                 {tagChoices.map((tag) => (
                   <Pressable
                     key={tag}
                     accessibilityLabel={`Filter ${tag}`}
                     testID={`tag-filter-${testSlug(tag)}`}
-                    style={[styles.button, tagFilter === tag && styles.buttonOn]}
+                    style={tagFilter === tag ? ui.primary : ui.button}
                     onPress={() => setTagFilter(tag)}
                   >
-                    <Text style={styles.buttonText}>{tag}</Text>
+                    <Text style={tagFilter === tag ? ui.primaryText : ui.buttonText}>{tag}</Text>
                   </Pressable>
                 ))}
               </View>
             ) : null}
             {review ? null : (
               <Pressable
-                style={styles.button}
+                style={ui.button}
                 accessibilityLabel="Evening reminder"
                 testID="evening-reminder"
                 onPress={() => setEveningOpen(true)}
               >
-                <Text style={styles.buttonText}>
+                <Text style={ui.buttonText}>
                   {evening ? `Evening ${formatClock12(evening.hour, evening.minute)}` : "Evening reminder"}
                 </Text>
               </Pressable>
@@ -603,38 +604,38 @@ export function MonthScreen({
         <View style={styles.actions}>
           {review && readOnly ? (
             <Pressable
-              style={styles.button}
+              style={ui.button}
               accessibilityLabel="Edit"
               testID="edit-month"
               onPress={() => setEditingPast(true)}
             >
-              <Text style={styles.buttonText}>Edit</Text>
+              <Text style={ui.buttonText}>Edit</Text>
             </Pressable>
           ) : (
             <>
               {frozen ? null : (
                 <Pressable
-                  style={styles.button}
+                  style={ui.button}
                   accessibilityLabel="Add habit"
                   onPress={onAddHabit}
                   testID="add-row"
                 >
-                  <Text style={styles.buttonText}>Add habit</Text>
+                  <Text style={ui.buttonText}>Add habit</Text>
                 </Pressable>
               )}
               {review ? (
                 <Pressable
-                  style={styles.button}
+                  style={ui.button}
                   accessibilityLabel="Done"
                   testID="done-edit"
                   onPress={() => setEditingPast(false)}
                 >
-                  <Text style={styles.buttonText}>Done</Text>
+                  <Text style={ui.buttonText}>Done</Text>
                 </Pressable>
               ) : null}
               {review ? null : (
                 <Pressable
-                  style={[styles.button, styles.buttonOn]}
+                  style={ui.primary}
                   accessibilityLabel="Wrap up day"
                   testID="wrap-today"
                   onPress={() => {
@@ -667,14 +668,14 @@ export function MonthScreen({
                       .catch(() => undefined);
                   }}
                 >
-                  <Text style={[styles.buttonText, styles.buttonOnText]}>Wrap up day</Text>
+                  <Text style={ui.primaryText}>Wrap up day</Text>
                 </Pressable>
               )}
             </>
           )}
           {undoReady ? (
             <Pressable
-              style={styles.button}
+              style={ui.button}
               accessibilityLabel="Undo"
               testID="undo-mark"
               onPress={() => {
@@ -683,16 +684,16 @@ export function MonthScreen({
                   .catch(() => undefined);
               }}
             >
-              <Text style={styles.buttonText}>Undo</Text>
+              <Text style={ui.buttonText}>Undo</Text>
             </Pressable>
           ) : null}
           <Pressable
-            style={styles.button}
+            style={ui.button}
             accessibilityLabel={more ? "Less" : "More"}
             testID="more-controls"
             onPress={() => setMore((open) => !open)}
           >
-            <Text style={styles.buttonText}>{more ? "Less" : "More"}</Text>
+            <Text style={ui.buttonText}>{more ? "Less" : "More"}</Text>
           </Pressable>
         </View>
       </View>
@@ -1304,7 +1305,7 @@ function RenameDialog({
           {subtasks && dayAsk ? (
             <View style={styles.actions}>
               <Pressable
-                style={[styles.button, styles.buttonOn]}
+                style={ui.primary}
                 testID="confirm-over-12-yes"
                 onPress={() => {
                   setAcceptedOver12(true);
@@ -1317,16 +1318,16 @@ function RenameDialog({
                   void onSave(name, lines).catch((error: unknown) => setMessage(errorText(error)));
                 }}
               >
-                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, keep them</Text>
+                <Text style={ui.primaryText}>Yes, keep them</Text>
               </Pressable>
-              <Pressable style={styles.button} testID="confirm-over-12-no" onPress={() => setDayAsk(false)}>
-                <Text style={styles.buttonText}>Not now</Text>
+              <Pressable style={ui.button} testID="confirm-over-12-no" onPress={() => setDayAsk(false)}>
+                <Text style={ui.buttonText}>Not now</Text>
               </Pressable>
             </View>
           ) : subtasks && subtaskAsk ? (
             <View style={styles.actions}>
               <Pressable
-                style={[styles.button, styles.buttonOn]}
+                style={ui.primary}
                 testID="confirm-over-3-yes"
                 onPress={() => {
                   setAcceptedOver3(true);
@@ -1339,38 +1340,38 @@ function RenameDialog({
                   );
                 }}
               >
-                <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, add another</Text>
+                <Text style={ui.primaryText}>Yes, add another</Text>
               </Pressable>
-              <Pressable style={styles.button} testID="confirm-over-3-no" onPress={() => setSubtaskAsk(false)}>
-                <Text style={styles.buttonText}>Keep 3</Text>
+              <Pressable style={ui.button} testID="confirm-over-3-no" onPress={() => setSubtaskAsk(false)}>
+                <Text style={ui.buttonText}>Keep 3</Text>
               </Pressable>
             </View>
           ) : (
             <View style={styles.actions}>
               {subtasks && lines.length < CHECKLIST_MAX ? (
-                <Pressable style={[styles.button, styles.buttonOn]} testID="add-checklist-item" onPress={addSubtask}>
-                  <Text style={[styles.buttonText, styles.buttonOnText]}>Add a subtask</Text>
+                <Pressable style={ui.button} testID="add-checklist-item" onPress={addSubtask}>
+                  <Text style={ui.buttonText}>Add a subtask</Text>
                 </Pressable>
               ) : null}
-              <Pressable style={[styles.button, styles.buttonOn]} testID="row-save" onPress={saveRow}>
-                <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+              <Pressable style={ui.primary} testID="row-save" onPress={saveRow}>
+                <Text style={ui.primaryText}>Save</Text>
               </Pressable>
               {confirmRemove ? (
                 <Pressable
-                  style={styles.button}
+                  style={ui.button}
                   onPress={() => {
                     void onRemove().catch((error: unknown) => setMessage(errorText(error)));
                   }}
                 >
-                  <Text style={styles.buttonText}>Confirm remove</Text>
+                  <Text style={ui.buttonText}>Confirm remove</Text>
                 </Pressable>
               ) : (
-                <Pressable style={styles.button} onPress={() => setConfirmRemove(true)}>
-                  <Text style={styles.buttonText}>Remove</Text>
+                <Pressable style={ui.button} onPress={() => setConfirmRemove(true)}>
+                  <Text style={ui.buttonText}>Remove</Text>
                 </Pressable>
               )}
-              <Pressable style={styles.button} testID="row-cancel" onPress={onClose}>
-                <Text style={styles.buttonText}>Cancel</Text>
+              <Pressable style={ui.button} testID="row-cancel" onPress={onClose}>
+                <Text style={ui.buttonText}>Cancel</Text>
               </Pressable>
             </View>
           )}
@@ -1397,14 +1398,14 @@ function RenameDialog({
             <View key={index} style={styles.checkRow}>
               <Pressable
                 testID={`check-done-${index}`}
-                style={styles.button}
+                style={ui.button}
                 onPress={() =>
                   setLines((current) =>
                     current.map((item, i) => (i === index ? { ...item, done: !item.done } : item)),
                   )
                 }
               >
-                <Text style={styles.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
+                <Text style={ui.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
               </Pressable>
               <TextInput
                 testID={`check-text-${index}`}
@@ -1436,14 +1437,14 @@ function RenameDialog({
         {rowTags.map((tag) => (
           <Pressable
             key={tag}
-            style={styles.chip}
+            style={ui.button}
             onPress={() => {
               const next = rowTags.filter((item) => item !== tag);
               setRowTags(next);
               onTags(next);
             }}
           >
-            <Text style={styles.chipText}>{tag}  x</Text>
+            <Text style={ui.buttonText}>{tag}  x</Text>
           </Pressable>
         ))}
         {rowTags.length ? null : <Text style={styles.kind}>None yet</Text>}
@@ -1458,7 +1459,7 @@ function RenameDialog({
           style={styles.tagInput}
         />
         <Pressable
-          style={styles.button}
+          style={ui.button}
           testID="tag-add"
           onPress={() => {
             const next = nextTags(rowTags, tagDraft);
@@ -1472,7 +1473,7 @@ function RenameDialog({
             setTagDraft("");
           }}
         >
-          <Text style={styles.buttonText}>Add</Text>
+          <Text style={ui.buttonText}>Add</Text>
         </Pressable>
       </View>
       <Pressable testID={`miss-flag-${slug}`} onPress={() => onToggleMiss(!habit.blankCountsAsMiss)}>
@@ -1491,8 +1492,8 @@ function RenameDialog({
         <View>
           <Text style={styles.fieldLabel}>Follow-up after a mark</Text>
           <View style={styles.reorder}>
-            <Pressable testID={`follow-8-${slug}`} style={styles.button} onPress={() => onFollowUp(String(FOLLOW_UP_QUICK))}>
-              <Text style={styles.buttonText}>8 hours</Text>
+            <Pressable testID={`follow-8-${slug}`} style={ui.button} onPress={() => onFollowUp(String(FOLLOW_UP_QUICK))}>
+              <Text style={ui.buttonText}>8 hours</Text>
             </Pressable>
             <TextInput
               testID={`follow-hours-${slug}`}
@@ -1504,13 +1505,13 @@ function RenameDialog({
               style={styles.tagInput}
             />
             <Pressable
-              style={styles.button}
+              style={ui.button}
               onPress={() => {
                 setHoursDraft("");
                 onFollowUp("");
               }}
             >
-              <Text style={styles.buttonText}>None</Text>
+              <Text style={ui.buttonText}>None</Text>
             </Pressable>
           </View>
           {habit.followUpHours != null && Platform.OS === "web" ? (
@@ -1521,7 +1522,7 @@ function RenameDialog({
       {habit.entry === "timer" ? (
         <Pressable
           testID={`remind-${slug}`}
-          style={styles.button}
+          style={ui.button}
           accessibilityLabel={
             habit.reminderHour == null
               ? "Daily reminder"
@@ -1531,7 +1532,7 @@ function RenameDialog({
           }
           onPress={onRemind}
         >
-          <Text style={styles.buttonText}>
+          <Text style={ui.buttonText}>
             {habit.reminderHour == null
               ? "Daily reminder"
               : reminderOn
@@ -1542,18 +1543,18 @@ function RenameDialog({
       ) : null}
       <View style={styles.actions}>
         <Pressable
-          style={styles.button}
+          style={ui.button}
           accessibilityLabel={habit.pinned ? "Unpin" : "Pin"}
           testID={`pin-${slug}`}
           onPress={onPin}
         >
-          <Text style={styles.buttonText}>{habit.pinned ? "Unpin" : "Pin"}</Text>
+          <Text style={ui.buttonText}>{habit.pinned ? "Unpin" : "Pin"}</Text>
         </Pressable>
-        <Pressable style={styles.button} accessibilityLabel="Move up" disabled={isFirst} onPress={() => onMove("up")}>
-          <Text style={styles.buttonText}>Move up</Text>
+        <Pressable style={ui.button} accessibilityLabel="Move up" disabled={isFirst} onPress={() => onMove("up")}>
+          <Text style={ui.buttonText}>Move up</Text>
         </Pressable>
-        <Pressable style={styles.button} accessibilityLabel="Move down" disabled={isLast} onPress={() => onMove("down")}>
-          <Text style={styles.buttonText}>Move down</Text>
+        <Pressable style={ui.button} accessibilityLabel="Move down" disabled={isLast} onPress={() => onMove("down")}>
+          <Text style={ui.buttonText}>Move down</Text>
         </Pressable>
       </View>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
@@ -1648,7 +1649,7 @@ function TimeDialog({
         <Pressable
           testID="time-now"
           accessibilityLabel="Now"
-          style={[styles.button, styles.buttonOn]}
+          style={ui.button}
           onPress={() => {
             const now = new Date();
             const view = to12Hour(now.getHours());
@@ -1661,30 +1662,30 @@ function TimeDialog({
             void onSave(next.hour, next.minute).catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
-          <Text style={[styles.buttonText, styles.buttonOnText]}>Now</Text>
+          <Text style={ui.buttonText}>Now</Text>
         </Pressable>
         <Pressable
           testID="period-am"
           accessibilityLabel="AM"
-          style={[styles.button, period === "AM" && styles.buttonOn]}
+          style={period === "AM" ? ui.primary : ui.button}
           onPress={() => setPeriod("AM")}
         >
-          <Text style={[styles.buttonText, period === "AM" && styles.buttonOnText]}>AM</Text>
+          <Text style={period === "AM" ? ui.primaryText : ui.buttonText}>AM</Text>
         </Pressable>
         <Pressable
           testID="period-pm"
           accessibilityLabel="PM"
-          style={[styles.button, period === "PM" && styles.buttonOn]}
+          style={period === "PM" ? ui.primary : ui.button}
           onPress={() => setPeriod("PM")}
         >
-          <Text style={[styles.buttonText, period === "PM" && styles.buttonOnText]}>PM</Text>
+          <Text style={period === "PM" ? ui.primaryText : ui.buttonText}>PM</Text>
         </Pressable>
       </View>
       <Text style={styles.quiet}>Type 507 for 5:07. The colon is added.</Text>
       {message ? <Text style={styles.banner}>{message}</Text> : null}
       <View style={styles.actions}>
         <Pressable
-          style={styles.button}
+          style={ui.primary}
           testID="time-save"
           onPress={() => {
             if (!full) {
@@ -1696,19 +1697,19 @@ function TimeDialog({
             );
           }}
         >
-          <Text style={styles.buttonText}>Save</Text>
+          <Text style={ui.primaryText}>Save</Text>
         </Pressable>
         <Pressable
-          style={styles.button}
+          style={ui.button}
           testID="time-clear"
           onPress={() => {
             void onClear().catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
-          <Text style={styles.buttonText}>Clear</Text>
+          <Text style={ui.buttonText}>Clear</Text>
         </Pressable>
-        <Pressable style={styles.button} testID="time-cancel" onPress={onClose}>
-          <Text style={styles.buttonText}>Cancel</Text>
+        <Pressable style={ui.button} testID="time-cancel" onPress={onClose}>
+          <Text style={ui.buttonText}>Cancel</Text>
         </Pressable>
       </View>
     </Dialog>
@@ -1781,7 +1782,7 @@ function JournalDialog({
       />
       <View style={styles.actions}>
         <Pressable
-          style={styles.button}
+          style={ui.button}
           accessibilityLabel={photoPath ? "Replace photo" : "Attach photo"}
           onPress={() => {
             void pickJournalPhoto(habit.id, `${day}`)
@@ -1791,41 +1792,41 @@ function JournalDialog({
               .catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
-          <Text style={styles.buttonText}>{photoPath ? "Replace photo" : "Attach photo"}</Text>
+          <Text style={ui.buttonText}>{photoPath ? "Replace photo" : "Attach photo"}</Text>
         </Pressable>
         {photoPath ? (
           <Pressable
-            style={styles.button}
+            style={ui.button}
             accessibilityLabel="Remove photo"
             onPress={() => {
               forgetJournalPhoto(photoPath);
               setPhotoPath(null);
             }}
           >
-            <Text style={styles.buttonText}>Remove photo</Text>
+            <Text style={ui.buttonText}>Remove photo</Text>
           </Pressable>
         ) : null}
         <Pressable
-          style={styles.button}
+          style={ui.button}
           accessibilityLabel={recording ? "Stop voice note" : "Record voice note"}
           testID="journal-voice"
           onPress={() => {
             void toggleVoice();
           }}
         >
-          <Text style={styles.buttonText}>{recording ? "Stop voice note" : voicePath ? "Replace voice note" : "Record voice note"}</Text>
+          <Text style={ui.buttonText}>{recording ? "Stop voice note" : voicePath ? "Replace voice note" : "Record voice note"}</Text>
         </Pressable>
         {voicePath && !recording ? (
           <Pressable
-            style={styles.button}
+            style={ui.button}
             accessibilityLabel="Remove voice note"
             onPress={() => setVoicePath(null)}
           >
-            <Text style={styles.buttonText}>Remove voice note</Text>
+            <Text style={ui.buttonText}>Remove voice note</Text>
           </Pressable>
         ) : null}
-        <Pressable style={[styles.button, diary && styles.buttonOn]} onPress={() => setDiary((value) => !value)}>
-          <Text style={[styles.buttonText, diary && styles.buttonOnText]}>Wrote it in my diary</Text>
+        <Pressable style={diary ? ui.primary : ui.button} onPress={() => setDiary((value) => !value)}>
+          <Text style={diary ? ui.primaryText : ui.buttonText}>Wrote it in my diary</Text>
         </Pressable>
       </View>
       {message ? (
@@ -1835,15 +1836,15 @@ function JournalDialog({
       ) : null}
       <View style={styles.actions}>
         <Pressable
-          style={styles.button}
+          style={ui.primary}
           onPress={() => {
             void onSave(note, photoPath, diary, voicePath).catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
-          <Text style={styles.buttonText}>Save</Text>
+          <Text style={ui.primaryText}>Save</Text>
         </Pressable>
-        <Pressable style={styles.button} onPress={onClose}>
-          <Text style={styles.buttonText}>Cancel</Text>
+        <Pressable style={ui.button} onPress={onClose}>
+          <Text style={ui.buttonText}>Cancel</Text>
         </Pressable>
       </View>
     </Dialog>
@@ -1974,10 +1975,10 @@ function ChecklistDialog({
           <View key={index} style={styles.checkRow}>
             <Pressable
               testID={`check-done-${index}`}
-              style={styles.button}
+              style={ui.button}
               onPress={() => setLine(index, { done: !line.done })}
             >
-              <Text style={styles.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
+              <Text style={ui.buttonText}>{line.done ? "[x]" : "[ ]"}</Text>
             </Pressable>
             <TextInput
               testID={`check-text-${index}`}
@@ -1997,34 +1998,34 @@ function ChecklistDialog({
       <View style={styles.actions}>
         {ask === "over-3" ? (
           <>
-            <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-3-yes" onPress={confirmOver3}>
-              <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, add another</Text>
+            <Pressable style={ui.primary} testID="confirm-over-3-yes" onPress={confirmOver3}>
+              <Text style={ui.primaryText}>Yes, add another</Text>
             </Pressable>
-            <Pressable style={styles.button} testID="confirm-over-3-no" onPress={() => setAsk(null)}>
-              <Text style={styles.buttonText}>Keep 3</Text>
+            <Pressable style={ui.button} testID="confirm-over-3-no" onPress={() => setAsk(null)}>
+              <Text style={ui.buttonText}>Keep 3</Text>
             </Pressable>
           </>
         ) : ask === "over-12" ? (
           <>
-            <Pressable style={[styles.button, styles.buttonOn]} testID="confirm-over-12-yes" onPress={confirmOver12}>
-              <Text style={[styles.buttonText, styles.buttonOnText]}>Yes, keep them</Text>
+            <Pressable style={ui.primary} testID="confirm-over-12-yes" onPress={confirmOver12}>
+              <Text style={ui.primaryText}>Yes, keep them</Text>
             </Pressable>
-            <Pressable style={styles.button} testID="confirm-over-12-no" onPress={() => setAsk(null)}>
-              <Text style={styles.buttonText}>Not now</Text>
+            <Pressable style={ui.button} testID="confirm-over-12-no" onPress={() => setAsk(null)}>
+              <Text style={ui.buttonText}>Not now</Text>
             </Pressable>
           </>
         ) : (
           <>
             {lines.length >= CHECKLIST_MAX ? null : (
-              <Pressable style={styles.button} testID="add-checklist-item" onPress={addLine}>
-                <Text style={styles.buttonText}>Add a subtask</Text>
+              <Pressable style={ui.button} testID="add-checklist-item" onPress={addLine}>
+                <Text style={ui.buttonText}>Add a subtask</Text>
               </Pressable>
             )}
-            <Pressable style={[styles.button, styles.buttonOn]} testID="checklist-save" onPress={save}>
-              <Text style={[styles.buttonText, styles.buttonOnText]}>Save</Text>
+            <Pressable style={ui.primary} testID="checklist-save" onPress={save}>
+              <Text style={ui.primaryText}>Save</Text>
             </Pressable>
-            <Pressable style={styles.button} onPress={onClose}>
-              <Text style={styles.buttonText}>Cancel</Text>
+            <Pressable style={ui.button} onPress={onClose}>
+              <Text style={ui.buttonText}>Cancel</Text>
             </Pressable>
           </>
         )}
@@ -2060,15 +2061,15 @@ function NoteDialog({
       {message ? <Text style={styles.banner}>{message}</Text> : null}
       <View style={styles.actions}>
         <Pressable
-          style={styles.button}
+          style={ui.primary}
           onPress={() => {
             void onSave(draft).catch((error: unknown) => setMessage(errorText(error)));
           }}
         >
-          <Text style={styles.buttonText}>Save</Text>
+          <Text style={ui.primaryText}>Save</Text>
         </Pressable>
-        <Pressable style={styles.button} onPress={onClose}>
-          <Text style={styles.buttonText}>Cancel</Text>
+        <Pressable style={ui.button} onPress={onClose}>
+          <Text style={ui.buttonText}>Cancel</Text>
         </Pressable>
       </View>
     </Dialog>
@@ -2153,18 +2154,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#16121C",
     fontSize: 16,
   },
-  button: {
-    minHeight: 44,
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#3A3348",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    backgroundColor: "#1C1726",
-  },
-  buttonText: { color: "#E7DCF8", fontSize: 14, fontWeight: "600" },
-  buttonOn: { backgroundColor: "#2A2340", borderColor: "#6E5A8A" },
-  buttonOnText: { color: "#F6F1FF" },
   vertical: { flex: 1, minHeight: 0 },
   gridRow: { flexDirection: "row", alignItems: "flex-start" },
   line: { borderColor: "#2C2636", borderRightWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
@@ -2209,15 +2198,6 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    borderWidth: 1,
-    borderColor: "#3A3348",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    backgroundColor: "#1C1726",
-  },
-  chipText: { color: "#F6F1FF", fontSize: 13 },
   missFlag: { color: "#F6F1FF", fontSize: 11, lineHeight: 14, marginTop: 4 },
   reorder: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, alignItems: "center" },
   link: { color: "#F4ECFF", fontSize: 12, fontWeight: "700" },
