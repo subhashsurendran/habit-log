@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType, type Ref } from "react";
-import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import WebView from "react-native-webview";
 
 // The package's iOS and Android prop types intersect to never under this SDK.
@@ -16,9 +16,9 @@ const SupportView = WebView as unknown as ComponentType<{
   onShouldStartLoadWithRequest?: (request: { url: string }) => boolean;
 }>;
 
-import { DISPLAY_NAME_KEY, PROFILE_AGE_KEY, PROFILE_SEX_KEY, SOUND_MUTED_KEY, clearSetting, openAppDatabase, writeSetting } from "./db";
+import { SOUND_MUTED_KEY, openAppDatabase, saveProfileFacts, writeSetting } from "./db";
 import { errorText } from "./errors";
-import { validateAgeDraft, type Sex } from "./person";
+import { parseStoredAge, parseStoredSex, validateAgeDraft, type Sex } from "./person";
 import {
   ACTIVATE_LINE,
   NOT_SENT,
@@ -29,7 +29,7 @@ import {
   supportPageResult,
 } from "./feedback";
 import { validateCallName } from "./names";
-import { ui } from "./theme";
+import { ink, ui } from "./theme";
 
 export function ProfileScreen({
   name,
@@ -79,15 +79,25 @@ export function ProfileScreen({
     }
     const nextSex = sexDraft;
     void openAppDatabase()
-      .then(async (database) => {
-        await writeSetting(database, DISPLAY_NAME_KEY, nextName);
-        if (nextAge == null) await clearSetting(database, PROFILE_AGE_KEY);
-        else await writeSetting(database, PROFILE_AGE_KEY, String(nextAge));
-        if (nextSex == null) await clearSetting(database, PROFILE_SEX_KEY);
-        else await writeSetting(database, PROFILE_SEX_KEY, nextSex);
-      })
-      .then(() => {
-        onFacts({ name: nextName, age: nextAge, sex: nextSex });
+      .then((database) =>
+        saveProfileFacts(database, {
+          name: nextName,
+          age: nextAge == null ? null : String(nextAge),
+          sex: nextSex,
+        }),
+      )
+      .then((stored) => {
+        const name = stored.name;
+        const age = parseStoredAge(stored.age);
+        const sex = parseStoredSex(stored.sex);
+        if (age !== nextAge || sex !== nextSex) {
+          setBanner("Could not save.", true);
+          return;
+        }
+        setDraft(name);
+        setAgeDraft(age == null ? "" : String(age));
+        setSexDraft(sex);
+        onFacts({ name, age, sex });
         setBanner(null);
       })
       .catch((error: unknown) => setBanner(errorText(error), true));
@@ -154,8 +164,8 @@ export function ProfileScreen({
         style={ui.input}
       />
       <Text style={ui.section}>Sex</Text>
-      <View style={ui.row}>
-        <SexChip
+      <View accessibilityRole="radiogroup" testID="profile-sex" style={radio.group}>
+        <SexRadio
           label="Not set"
           testID="profile-sex-blank"
           selected={sexDraft == null}
@@ -165,7 +175,7 @@ export function ProfileScreen({
             setBanner(null);
           }}
         />
-        <SexChip
+        <SexRadio
           label="Female"
           testID="profile-sex-female"
           selected={sexDraft === "female"}
@@ -175,7 +185,7 @@ export function ProfileScreen({
             setBanner(null);
           }}
         />
-        <SexChip
+        <SexRadio
           label="Male"
           testID="profile-sex-male"
           selected={sexDraft === "male"}
@@ -186,9 +196,9 @@ export function ProfileScreen({
           }}
         />
       </View>
-      <Text style={ui.quiet}>Age and sex stay on this phone. Leave either blank. Not medical advice.</Text>
-      <Pressable style={ui.button} testID="profile-save" onPress={saveName}>
-        <Text style={ui.buttonText}>Save</Text>
+      <Text style={ui.quiet}>Age and sex stay on this phone. Not set stores no sex. Not medical advice.</Text>
+      <Pressable style={ui.primary} testID="profile-save" onPress={saveName}>
+        <Text style={ui.primaryText}>Save</Text>
       </Pressable>
       {banner ? (
         <Text style={banner.failed ? ui.banner : ui.note} testID="profile-line">
@@ -207,7 +217,7 @@ export function ProfileScreen({
   );
 }
 
-function SexChip({
+function SexRadio({
   label,
   testID,
   selected,
@@ -220,16 +230,43 @@ function SexChip({
 }) {
   return (
     <Pressable
-      style={selected ? ui.chipOn : ui.chip}
+      style={radio.choice}
       testID={testID}
+      accessibilityRole="radio"
       accessibilityLabel={label}
-      accessibilityState={{ selected }}
+      accessibilityState={{ checked: selected }}
       onPress={onPress}
     >
-      <Text style={selected ? ui.chipOnText : ui.chipText}>{label}</Text>
+      <View style={[radio.ring, selected && radio.ringOn]}>
+        {selected ? <View style={radio.dot} /> : null}
+      </View>
+      <Text style={selected ? radio.labelOn : radio.label}>{label}</Text>
     </Pressable>
   );
 }
+
+const radio = StyleSheet.create({
+  group: { gap: 4 },
+  choice: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  ring: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: ink.quiet,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ringOn: { borderColor: ink.green },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: ink.green },
+  label: { color: ink.body, fontSize: 16 },
+  labelOn: { color: ink.text, fontSize: 16, fontWeight: "700" },
+});
 
 function hostAllowed(url: string): boolean {
   if (url.startsWith("about:")) return true;

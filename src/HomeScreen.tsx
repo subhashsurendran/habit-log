@@ -249,8 +249,8 @@ export function HomeScreen({
             autoCapitalize="words"
             style={ui.input}
           />
-          <Pressable style={[ui.button, { alignSelf: "center" }]} testID="call-save" onPress={saveName}>
-            <Text style={ui.buttonText}>Save</Text>
+          <Pressable style={ui.primary} testID="call-save" onPress={saveName}>
+            <Text style={ui.primaryText}>Save</Text>
           </Pressable>
         </View>
       )}

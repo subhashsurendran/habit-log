@@ -518,6 +518,49 @@ export function clearSetting(db: SQLiteDatabase, key: string): Promise<void> {
   return withDbLock(() => db.runAsync("DELETE FROM settings WHERE key = ?", key)).then(() => undefined);
 }
 
+export type StoredProfileFacts = {
+  name: string;
+  age: string | null;
+  sex: string | null;
+};
+
+async function readSettingValue(db: SQLiteDatabase, key: string): Promise<string | null> {
+  const row = await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = ?", key);
+  return row?.value ?? null;
+}
+
+async function putSettingValue(db: SQLiteDatabase, key: string, value: string | null): Promise<void> {
+  if (!SETTING_KEY.test(key)) throw new Error("Could not store that on this device.");
+  if (value == null) {
+    await db.runAsync("DELETE FROM settings WHERE key = ?", key);
+    return;
+  }
+  if (value.length > 80) throw new Error("Could not store that on this device.");
+  await db.runAsync(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    key,
+    value,
+  );
+}
+
+/** Writes name, age, and sex in one turn, then reads them back. Age and sex null clears that key. */
+export function saveProfileFacts(db: SQLiteDatabase, facts: StoredProfileFacts): Promise<StoredProfileFacts> {
+  return withDbLock(async () => {
+    await putSettingValue(db, DISPLAY_NAME_KEY, facts.name);
+    await putSettingValue(db, PROFILE_AGE_KEY, facts.age);
+    await putSettingValue(db, PROFILE_SEX_KEY, facts.sex);
+    const stored = {
+      name: await readSettingValue(db, DISPLAY_NAME_KEY),
+      age: await readSettingValue(db, PROFILE_AGE_KEY),
+      sex: await readSettingValue(db, PROFILE_SEX_KEY),
+    };
+    if (stored.name !== facts.name || stored.age !== facts.age || stored.sex !== facts.sex || stored.name == null) {
+      throw new Error("Could not save.");
+    }
+    return { name: stored.name, age: stored.age, sex: stored.sex };
+  });
+}
+
 export function createHabitTemplate(
   db: SQLiteDatabase,
   rawName: string,

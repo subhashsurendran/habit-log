@@ -108,6 +108,7 @@ export const ui = StyleSheet.create({
     borderWidth: 1,
     borderColor: ink.green,
     borderRadius: 12,
+    paddingHorizontal: 14,
     backgroundColor: ink.card,
   },
   primaryText: { color: ink.text, fontSize: 16, fontWeight: "700" },
