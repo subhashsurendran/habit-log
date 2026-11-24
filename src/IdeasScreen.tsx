@@ -86,7 +86,7 @@ export function IdeasScreen({ person, onGesture }: { person: Person; onGesture: 
           What's kept
         </Text>
         <Text style={[ui.quiet, { marginTop: 4 }]} testID="ideas-about">
-          Picked from the name, age, and sex on this phone. A blank age or sex still gets a list. Not medical advice.
+          Picked from the name, age, and sex on this phone. Prefer not to say uses the same list as no sex. Not medical advice.
         </Text>
       </View>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
