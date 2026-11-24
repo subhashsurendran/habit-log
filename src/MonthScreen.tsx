@@ -124,6 +124,12 @@ function monthWrappedToday(
   return month.wrappedDates.includes(dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate()));
 }
 
+/** The open month accepts a mark on today only. A past month uses Edit, so every day there can change. */
+function cellAcceptsMark(review: boolean, todayDay: number | null, day: number): boolean {
+  if (review) return true;
+  return todayDay != null && day === todayDay;
+}
+
 export function MonthScreen({
   monthId,
   review = false,
@@ -379,7 +385,7 @@ export function MonthScreen({
         </Text>
         {review ? null : (
           <Text style={styles.quiet} testID="today-about">
-            Mark this month. The buttons sit under the grid.
+            Mark today. Earlier days stay as they are. The buttons sit under the grid.
           </Text>
         )}
         {ringBlock ? (
@@ -482,6 +488,7 @@ export function MonthScreen({
                     const record = records.get(
                       `${habit.id}|${dateFor(month.year, month.month, day)}`,
                     );
+                    const accepts = cellAcceptsMark(review, todayDay, day);
                     return (
                       <DayCell
                         key={day}
@@ -492,8 +499,9 @@ export function MonthScreen({
                         dayWidth={dayWidth}
                         isWeekend={isWeekend(month.year, month.month, day)}
                         isToday={todayDay === day}
+                        locked={!accepts}
                         onPress={() => {
-                          if (frozen) return;
+                          if (frozen || !accepts) return;
                           if (habit.entry === "timer") {
                             setTimeEdit({ mode: "cell", habit, day });
                             return;
@@ -565,7 +573,7 @@ export function MonthScreen({
                           });
                         }}
                         onLongPress={() => {
-                          if (frozen) return;
+                          if (frozen || !accepts) return;
                           if (habit.entry === "tick") setNoteEdit({ habit, day });
                         }}
                       />
@@ -1127,6 +1135,7 @@ function DayCell({
   dayWidth,
   isWeekend,
   isToday,
+  locked,
   onPress,
   onLongPress,
 }: {
@@ -1137,6 +1146,7 @@ function DayCell({
   dayWidth: number;
   isWeekend: boolean;
   isToday: boolean;
+  locked: boolean;
   onPress: () => void;
   onLongPress: () => void;
 }) {
@@ -1174,8 +1184,11 @@ function DayCell({
     <Pressable
       testID={`cell-${slug}-${day}`}
       accessibilityLabel={cellLabel(habit, day, record)}
-      onPress={onPress}
-      onLongPress={onLongPress}
+      accessibilityRole={locked ? "text" : "button"}
+      accessibilityState={locked ? { disabled: true } : undefined}
+      disabled={locked}
+      onPress={locked ? undefined : onPress}
+      onLongPress={locked ? undefined : onLongPress}
       style={[styles.cell, styles.line, { height, width: dayWidth }, isWeekend && styles.weekend, isToday && styles.today]}
     >
       <Animated.View style={{ transform: [{ scale }] }}>
