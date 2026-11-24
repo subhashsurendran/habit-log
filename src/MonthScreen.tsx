@@ -68,7 +68,15 @@ import { FOLLOW_UP_QUICK, parseFollowUpHours } from "./followUp";
 import { cycleTickMonth } from "./markPaint";
 import { dateFor, daysInMonth, isWeekend, monthTitle, weekdayLabel } from "./month";
 import { NAME_MAX, testSlug } from "./names";
-import { cancelHabitNotifications, reminderIsScheduled, syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
+import {
+  cancelHabitNotifications,
+  reminderBlock,
+  reminderIsScheduled,
+  syncDailyReminder,
+  syncEveningWrap,
+  syncFollowUp,
+  type NotifyResult,
+} from "./notify";
 import { forgetJournalPhoto, pickJournalPhoto } from "./photo";
 import { keepPhotoFile, PHOTO_REFUSED } from "./photoFile";
 import { keepVoiceFile, storeVoiceNote, VOICE_REFUSED } from "./voiceFile";
@@ -76,7 +84,7 @@ import { nextTags, TAG_LIMIT_NOTE, TAG_MAX } from "./tags";
 import { playNight, playTick } from "./cues";
 import { countsAsMiss, shownMark } from "./tally";
 import { easeSentence, scoreStoredMonth, weeklyEase } from "./score";
-import { reminderNote } from "./reminderWhen";
+import { reminderFeedback } from "./reminderWhen";
 import { formatClock12, parseTimeInput, to12Hour, to24Hour, type ClockPeriod } from "./time";
 import type { CheckItem, DayRecord, Entry, Habit, MonthState } from "./types";
 import { ui } from "./theme";
@@ -137,8 +145,15 @@ export function MonthScreen({
   const [month, setMonth] = useState<MonthState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  const [ringBlock, setRingBlock] = useState<string | null>(null);
   function setBanner(text: string | null, failed = false) {
     setBannerState(text == null ? null : { text, failed });
+  }
+  function showRing(result: NotifyResult, hour: number, minute: number, wrapped: boolean) {
+    const feedback = reminderFeedback(result, hour, minute, new Date(), wrapped);
+    if (result === "denied-alarm" || result === "denied-notification") setRingBlock(feedback?.text ?? null);
+    else if (result === "alarm" || result === "notification" || result === "cancelled") setRingBlock(null);
+    if (feedback) setBanner(feedback.text, feedback.failed);
   }
   const [timeEdit, setTimeEdit] = useState<
     { mode: "cell"; habit: Habit; day: number } | { mode: "reminder"; habit: Habit } | null
@@ -177,6 +192,14 @@ export function MonthScreen({
         if (hour != null && minute != null) {
           setEvening({ hour: Number(hour), minute: Number(minute) });
         }
+        const savedReminder =
+          opened.habits.some(
+            (habit) => habit.entry === "timer" && habit.reminderHour != null && habit.reminderMinute != null,
+          ) ||
+          (hour != null && minute != null);
+        if (!live) return;
+        const blocked = savedReminder ? await reminderBlock() : null;
+        if (live) setRingBlock(blocked);
       })
       .catch(() => {
         if (!live) return;
@@ -359,6 +382,11 @@ export function MonthScreen({
             Mark this month. The buttons sit under the grid.
           </Text>
         )}
+        {ringBlock ? (
+          <Text style={styles.banner} testID="reminder-permission">
+            {ringBlock}
+          </Text>
+        ) : null}
         {sample ? (
           <Text style={styles.quiet} testID="sample-month">
             Sample
@@ -511,7 +539,11 @@ export function MonthScreen({
                               hours: habit.followUpHours,
                               completed: outcome === "tick",
                             });
-                            if (result === "unavailable") {
+                            if (result === "denied-notification" || result === "denied-alarm") {
+                              const feedback = reminderFeedback(result, 0, 0, new Date(), false);
+                              setRingBlock(feedback?.text ?? null);
+                              if (feedback) setBanner(feedback.text, true);
+                            } else if (result === "unavailable") {
                               setBanner("Saved. The notification was not scheduled.", true);
                             }
                             pendingMarks.current = Math.max(0, pendingMarks.current - 1);
@@ -756,8 +788,8 @@ export function MonthScreen({
                 minute: editingHabit.reminderMinute,
                 todayWrapped: monthWrappedToday(month),
               });
-              if (editingHabit.reminderHour != null && result === "unavailable") {
-                setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
+              if (editingHabit.reminderHour != null && editingHabit.reminderMinute != null) {
+                showRing(result, editingHabit.reminderHour, editingHabit.reminderMinute, monthWrappedToday(month));
               }
             }
             setRenameTarget(null);
@@ -838,16 +870,9 @@ export function MonthScreen({
                   hour,
                   minute,
                   todayWrapped,
+                  prompt: true,
                 });
-                if (result === "scheduled") {
-                  setBanner(reminderNote(hour, minute, now, todayWrapped));
-                }
-                if (result === "stored") {
-                  setBanner("Saved on this device. The browser will not notify you.");
-                }
-                if (result === "unavailable") {
-                  setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
-                }
+                showRing(result, hour, minute, todayWrapped);
               });
               setTimeEdit(null);
               return;
@@ -881,13 +906,16 @@ export function MonthScreen({
                   hour,
                   minute,
                   todayWrapped,
+                  prompt: true,
                 });
-                if (result === "scheduled") setBanner(reminderNote(hour, minute, now, todayWrapped));
-                else if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
-                else setBanner("Saved. Allow notifications for MyDTC, or this reminder will not ring.", true);
+                showRing(result, hour, minute, todayWrapped);
                 return;
               }
-              if (follow === "unavailable") setBanner("Saved. The notification was not scheduled.", true);
+              if (follow === "denied-notification" || follow === "denied-alarm") {
+                const feedback = reminderFeedback(follow, 0, 0, new Date(), false);
+                setRingBlock(feedback?.text ?? null);
+                if (feedback) setBanner(feedback.text, true);
+              } else if (follow === "unavailable") setBanner("Saved. The notification was not scheduled.", true);
             });
             setTimeEdit(null);
           }}
@@ -993,11 +1021,11 @@ export function MonthScreen({
               await writeSetting(database, EVENING_HOUR_KEY, String(hour));
               await writeSetting(database, EVENING_MINUTE_KEY, String(minute));
             });
-            const result = await syncEveningWrap(hour, minute, monthWrappedToday(month));
+            const wrapped = monthWrappedToday(month);
+            const result = await syncEveningWrap(hour, minute, wrapped, true);
             setEvening({ hour, minute });
             setEveningOpen(false);
-            if (result === "unavailable") setBanner("Saved. The notification was not scheduled.", true);
-            if (result === "stored") setBanner("Saved on this device. The browser will not notify you.");
+            showRing(result, hour, minute, wrapped);
           }}
           onClear={async () => {
             await enqueue(async (database) => {

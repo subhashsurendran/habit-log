@@ -18,6 +18,7 @@
         "NSPhotoLibraryUsageDescription": "MyDTC uses the photo library for a journal photo stored on this phone.",
         "NSMicrophoneUsageDescription": "MyDTC uses the microphone for a journal voice note stored on this phone.",
         "ITSAppUsesNonExemptEncryption": false,
+        "NSAlarmKitUsageDescription": "MyDTC rings a reminder at the minute you set, even when the app is closed.",
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true
       }
@@ -51,7 +52,8 @@
           "microphonePermission": "MyDTC uses the microphone for a journal voice note stored on this phone."
         }
       ],
-      "expo-iap"
+      "expo-iap",
+      "expo-notifications"
     ]
   }
 }

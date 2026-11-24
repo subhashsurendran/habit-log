@@ -1,4 +1,11 @@
-export type NotifyResult = "stored" | "scheduled" | "cancelled" | "unavailable";
+export type NotifyResult =
+  | "stored"
+  | "alarm"
+  | "notification"
+  | "cancelled"
+  | "denied-alarm"
+  | "denied-notification"
+  | "unavailable";
 
 export type FollowUpRequest = {
   habitId: string;
@@ -15,6 +22,8 @@ export type ReminderRequest = {
   minute: number | null;
   /** Tonight stays quiet after Wrap up day. Later days are still scheduled. */
   todayWrapped?: boolean;
+  /** Ask for permission only when the person sets the time. Opening the app does not ask. */
+  prompt?: boolean;
 };
 
 /**
@@ -33,6 +42,11 @@ export async function syncDailyReminder(_request: ReminderRequest): Promise<Noti
 
 export async function cancelHabitNotifications(_habitId: string): Promise<void> {}
 
+/** The browser has no alarm permission to miss. */
+export async function reminderBlock(): Promise<string | null> {
+  return null;
+}
+
 /** The browser cannot schedule a notification, so a stored time is never armed. */
 export async function reminderIsScheduled(_habitId: string): Promise<boolean> {
   return false;
@@ -43,6 +57,7 @@ export async function syncEveningWrap(
   hour: number | null,
   minute: number | null,
   _todayWrapped = false,
+  _prompt = false,
 ): Promise<NotifyResult> {
   if (hour == null || minute == null) return "cancelled";
   return "stored";
