@@ -16,8 +16,9 @@ const SupportView = WebView as unknown as ComponentType<{
   onShouldStartLoadWithRequest?: (request: { url: string }) => boolean;
 }>;
 
-import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, writeSetting } from "./db";
+import { DISPLAY_NAME_KEY, PROFILE_AGE_KEY, PROFILE_SEX_KEY, SOUND_MUTED_KEY, clearSetting, openAppDatabase, writeSetting } from "./db";
 import { errorText } from "./errors";
+import { validateAgeDraft, type Sex } from "./person";
 import {
   ACTIVATE_LINE,
   NOT_SENT,
@@ -32,22 +33,28 @@ import { ui } from "./theme";
 
 export function ProfileScreen({
   name,
+  age,
+  sex,
   muted,
-  onName,
+  onFacts,
   onMuted,
   onGesture,
   onStart,
   onStop,
 }: {
   name: string | null;
+  age: number | null;
+  sex: Sex | null;
   muted: boolean;
-  onName: (name: string) => void;
+  onFacts: (facts: { name: string; age: number | null; sex: Sex | null }) => void;
   onMuted: (muted: boolean) => void;
   onGesture: () => void;
   onStart: () => void;
   onStop: () => void;
 }) {
   const [draft, setDraft] = useState(name ?? "");
+  const [ageDraft, setAgeDraft] = useState(age == null ? "" : String(age));
+  const [sexDraft, setSexDraft] = useState<Sex | null>(sex);
   const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
   function setBanner(text: string | null, failed = false) {
     setBannerState(text == null ? null : { text, failed });
@@ -55,21 +62,32 @@ export function ProfileScreen({
 
   useEffect(() => {
     setDraft(name ?? "");
-  }, [name]);
+    setAgeDraft(age == null ? "" : String(age));
+    setSexDraft(sex);
+  }, [name, age, sex]);
 
   function saveName() {
     onGesture();
-    let next: string;
+    let nextName: string;
+    let nextAge: number | null;
     try {
-      next = validateCallName(draft);
+      nextName = validateCallName(draft);
+      nextAge = validateAgeDraft(ageDraft);
     } catch (error: unknown) {
       setBanner(errorText(error), true);
       return;
     }
+    const nextSex = sexDraft;
     void openAppDatabase()
-      .then((database) => writeSetting(database, DISPLAY_NAME_KEY, next))
+      .then(async (database) => {
+        await writeSetting(database, DISPLAY_NAME_KEY, nextName);
+        if (nextAge == null) await clearSetting(database, PROFILE_AGE_KEY);
+        else await writeSetting(database, PROFILE_AGE_KEY, String(nextAge));
+        if (nextSex == null) await clearSetting(database, PROFILE_SEX_KEY);
+        else await writeSetting(database, PROFILE_SEX_KEY, nextSex);
+      })
       .then(() => {
-        onName(next);
+        onFacts({ name: nextName, age: nextAge, sex: nextSex });
         setBanner(null);
       })
       .catch((error: unknown) => setBanner(errorText(error), true));
@@ -118,6 +136,57 @@ export function ProfileScreen({
         autoCapitalize="words"
         style={ui.input}
       />
+      <Text style={ui.section}>Age</Text>
+      <TextInput
+        testID="profile-age"
+        value={ageDraft}
+        onChangeText={(value) => {
+          setAgeDraft(value);
+          setBanner(null);
+        }}
+        onFocus={onGesture}
+        onSubmitEditing={saveName}
+        placeholder="Age"
+        placeholderTextColor="#8A7A9E"
+        maxLength={3}
+        keyboardType="number-pad"
+        inputMode="numeric"
+        style={ui.input}
+      />
+      <Text style={ui.section}>Sex</Text>
+      <View style={ui.row}>
+        <SexChip
+          label="Not set"
+          testID="profile-sex-blank"
+          selected={sexDraft == null}
+          onPress={() => {
+            onGesture();
+            setSexDraft(null);
+            setBanner(null);
+          }}
+        />
+        <SexChip
+          label="Female"
+          testID="profile-sex-female"
+          selected={sexDraft === "female"}
+          onPress={() => {
+            onGesture();
+            setSexDraft("female");
+            setBanner(null);
+          }}
+        />
+        <SexChip
+          label="Male"
+          testID="profile-sex-male"
+          selected={sexDraft === "male"}
+          onPress={() => {
+            onGesture();
+            setSexDraft("male");
+            setBanner(null);
+          }}
+        />
+      </View>
+      <Text style={ui.quiet}>Age and sex stay on this phone. Leave either blank. Not medical advice.</Text>
       <Pressable style={ui.button} testID="profile-save" onPress={saveName}>
         <Text style={ui.buttonText}>Save</Text>
       </Pressable>
@@ -135,6 +204,30 @@ export function ProfileScreen({
         <Text style={ui.buttonText}>{muted ? "Sound off" : "Sound on"}</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+function SexChip({
+  label,
+  testID,
+  selected,
+  onPress,
+}: {
+  label: string;
+  testID: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={selected ? ui.chipOn : ui.chip}
+      testID={testID}
+      accessibilityLabel={label}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+    >
+      <Text style={selected ? ui.chipOnText : ui.chipText}>{label}</Text>
+    </Pressable>
   );
 }
 

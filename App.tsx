@@ -5,7 +5,7 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
 import { previewCueSound, setCueSound } from "./src/cues";
-import { DISPLAY_NAME_KEY, EVENING_HOUR_KEY, EVENING_MINUTE_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
+import { DISPLAY_NAME_KEY, EVENING_HOUR_KEY, EVENING_MINUTE_KEY, PROFILE_AGE_KEY, PROFILE_SEX_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { AddHabitScreen } from "./src/AddHabitScreen";
 import { HomeScreen } from "./src/HomeScreen";
@@ -14,6 +14,7 @@ import { ProfileScreen } from "./src/ProfileScreen";
 import { currentMonth, dateFor } from "./src/month";
 import { MonthScreen } from "./src/MonthScreen";
 import { callNameOrNull } from "./src/names";
+import { parseStoredAge, parseStoredSex, type Sex } from "./src/person";
 import { syncDailyReminder, syncEveningWrap } from "./src/notify";
 import { ScoreScreen } from "./src/ScoreScreen";
 import { ScreenNav } from "./src/ScreenNav";
@@ -22,7 +23,7 @@ import { TemplatesScreen } from "./src/TemplatesScreen";
 import { ink } from "./src/theme";
 
 type BoundaryState = { message: string | null };
-type Prefs = { name: string | null; muted: boolean };
+type Prefs = { name: string | null; age: number | null; sex: Sex | null; muted: boolean };
 type Place =
   | { kind: "home" }
   | { kind: "today" }
@@ -86,12 +87,19 @@ function Shell() {
     openAppDatabase()
       .then(async (database) => {
         const stored = await readSetting(database, DISPLAY_NAME_KEY);
+        const ageRaw = await readSetting(database, PROFILE_AGE_KEY);
+        const sexRaw = await readSetting(database, PROFILE_SEX_KEY);
         const flag = await readSetting(database, SOUND_MUTED_KEY);
         const muted = flag !== "0";
         if (flag == null) await writeSetting(database, SOUND_MUTED_KEY, "1");
         const month = await loadMonth(database);
         if (!live) return;
-        setPrefs({ name: callNameOrNull(stored), muted });
+        setPrefs({
+          name: callNameOrNull(stored),
+          age: parseStoredAge(ageRaw),
+          sex: parseStoredSex(sexRaw),
+          muted,
+        });
         try {
           const now = new Date();
           const today = dateFor(now.getFullYear(), now.getMonth() + 1, now.getDate());
@@ -234,12 +242,19 @@ function Shell() {
             onGesture={onGesture}
           />
         ) : null}
-        {!fatal && prefs && place.kind === "ideas" ? <IdeasScreen onGesture={onGesture} /> : null}
+        {!fatal && prefs && place.kind === "ideas" ? (
+          <IdeasScreen
+            person={{ name: prefs.name, age: prefs.age, sex: prefs.sex }}
+            onGesture={onGesture}
+          />
+        ) : null}
         {!fatal && prefs && place.kind === "profile" ? (
           <ProfileScreen
             name={prefs.name}
+            age={prefs.age}
+            sex={prefs.sex}
             muted={prefs.muted}
-            onName={(name) => setPrefs({ ...prefs, name })}
+            onFacts={(facts) => setPrefs({ ...prefs, ...facts })}
             onMuted={(muted) => setPrefs({ ...prefs, muted })}
             onGesture={onGesture}
             onStart={() => previewCueSound()}
