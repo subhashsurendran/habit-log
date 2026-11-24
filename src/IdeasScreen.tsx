@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 
 import { addHabit, loadDashboard, openAppDatabase, type DashboardState } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
+import { EARLIER_DAYS_NOTE, earlierDaysCountAsNotDone } from "./month";
 import { HABIT_SUGGESTIONS, suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
 import { ui } from "./theme";
 import type { Entry } from "./types";
@@ -18,6 +19,8 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
   const [board, setBoard] = useState<DashboardState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
+  const [acceptedName, setAcceptedName] = useState<string | null>(null);
+  const saving = useRef(false);
   function setBanner(text: string | null, failed = false) {
     setBannerState(text == null ? null : { text, failed });
   }
@@ -43,16 +46,30 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
   }, []);
 
   function add(item: HabitSuggestion) {
-    if (!board) return;
+    if (!board || saving.current) return;
     onGesture();
+    const midMonth = earlierDaysCountAsNotDone(
+      board.current.year,
+      board.current.month,
+      board.current.startedOn,
+    );
+    if (midMonth && acceptedName !== item.name) {
+      setAcceptedName(item.name);
+      return;
+    }
+    saving.current = true;
     void openAppDatabase()
       .then((database) => addHabit(database, board.current.id, item.name, item.entry, []))
       .then(() => reload())
       .then((next) => {
+        setAcceptedName(null);
         setBoard(next);
         setBanner(`${item.name} is on this month.`);
       })
-      .catch((error: unknown) => setBanner(errorText(error), true));
+      .catch((error: unknown) => setBanner(errorText(error), true))
+      .finally(() => {
+        saving.current = false;
+      });
   }
 
   const names = board?.current.habits.map((habit) => habit.name) ?? [];
@@ -62,12 +79,14 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
 
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.page} testID="ideas-screen">
-      <Text style={ui.title} accessibilityRole="header">
-        What's kept
-      </Text>
-      <Text style={ui.quiet}>
-        Habits people add in many countries. This phone only changes your month.
-      </Text>
+      <View>
+        <Text style={ui.title} accessibilityRole="header">
+          What's kept
+        </Text>
+        <Text style={[ui.quiet, { marginTop: 4 }]} testID="ideas-about">
+          Habits people keep. Add puts one on this month.
+        </Text>
+      </View>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
       {!fatal && !board ? <Text style={ui.body}>Opening…</Text> : null}
       {board && waiting.length === 0 ? (
@@ -78,14 +97,14 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
       {gist ? (
         <View style={ui.stack}>
           <Text style={ui.section}>Today's gist</Text>
-          <IdeaCard item={gist} names={names} onAdd={add} live />
+          <IdeaCard item={gist} names={names} acceptedName={acceptedName} onAdd={add} live />
         </View>
       ) : null}
       {rest.length ? (
         <View style={ui.stack}>
           <Text style={ui.section}>Also kept</Text>
           {rest.map((item) => (
-            <IdeaCard key={item.name} item={item} names={names} onAdd={add} />
+            <IdeaCard key={item.name} item={item} names={names} acceptedName={acceptedName} onAdd={add} />
           ))}
         </View>
       ) : null}
@@ -97,17 +116,20 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
 function IdeaCard({
   item,
   names,
+  acceptedName,
   onAdd,
   live = false,
 }: {
   item: HabitSuggestion;
   names: readonly string[];
+  acceptedName: string | null;
   onAdd: (item: HabitSuggestion) => void;
   live?: boolean;
 }) {
   const kept = suggestionsNotKept(names).every((idea) => idea.name !== item.name);
+  const slug = item.name.toLowerCase().replace(/\s+/g, "-");
   return (
-    <View style={live ? ui.cardLive : ui.card} testID={`idea-${item.name.toLowerCase().replace(/\s+/g, "-")}`}>
+    <View style={live ? ui.cardLive : ui.card} testID={`idea-${slug}`}>
       <Text style={ui.body}>{item.name}</Text>
       <Text style={ui.quiet}>
         {item.line} {kindLabel(item.entry)}.
@@ -115,14 +137,21 @@ function IdeaCard({
       {kept ? (
         <Text style={ui.quiet}>On this month</Text>
       ) : (
-        <Pressable
-          style={ui.button}
-          accessibilityLabel={`Add ${item.name}`}
-          testID={`idea-add-${item.name.toLowerCase().replace(/\s+/g, "-")}`}
-          onPress={() => onAdd(item)}
-        >
-          <Text style={ui.buttonText}>Add</Text>
-        </Pressable>
+        <>
+          {acceptedName === item.name ? (
+            <Text style={ui.note} testID={`idea-earlier-${slug}`}>
+              {EARLIER_DAYS_NOTE}
+            </Text>
+          ) : null}
+          <Pressable
+            style={ui.button}
+            accessibilityLabel={`Add ${item.name}`}
+            testID={`idea-add-${slug}`}
+            onPress={() => onAdd(item)}
+          >
+            <Text style={ui.buttonText}>Add</Text>
+          </Pressable>
+        </>
       )}
     </View>
   );

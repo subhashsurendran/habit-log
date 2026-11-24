@@ -1,0 +1,80 @@
+name: Publish privacy and support pages
+
+on:
+  push:
+    branches:
+      - cursor/iphone-v1-ship-5628
+    paths:
+      - docs/privacy.md
+      - docs/support.md
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build the two pages
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def page(src: Path, title: str) -> str:
+              text = src.read_text()
+              if text.startswith("---"):
+                  text = text.split("---", 2)[2]
+              parts = []
+              for block in text.strip().split("\n\n"):
+                  lines = [line.strip() for line in block.splitlines() if line.strip()]
+                  if not lines:
+                      continue
+                  if lines[0].startswith("# "):
+                      heading = lines[0][2:]
+                      parts.append(f"<h1>{heading}</h1>")
+                      lines = lines[1:]
+                  if lines:
+                      parts.append("<p>" + " ".join(lines) + "</p>")
+              body = "\n".join(parts)
+              return f"""<!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>{title}</title>
+          </head>
+          <body>
+          {body}
+          </body>
+          </html>
+          """
+
+          out = Path("site")
+          for name, title in (("privacy", "Privacy"), ("support", "Support")):
+              folder = out / name
+              folder.mkdir(parents=True)
+              folder.joinpath("index.html").write_text(page(Path("docs") / f"{name}.md", title))
+          PY
+
+      - name: Upload pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

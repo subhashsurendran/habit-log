@@ -31,6 +31,9 @@ export function BrandLockup() {
         </Text>
       </Text>
       <Text style={styles.tagline}>{TAGLINE}</Text>
+      <Text style={styles.expansion} testID="mydtc-expansion">
+        My Daily Task Checker
+      </Text>
     </View>
   );
 }
@@ -106,6 +109,15 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "500",
     letterSpacing: 0.3,
+    textAlign: "center",
+  },
+  expansion: {
+    marginTop: 2,
+    color: "#8E819C",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "400",
+    letterSpacing: 0.2,
     textAlign: "center",
   },
 });

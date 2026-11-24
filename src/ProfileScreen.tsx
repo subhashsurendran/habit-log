@@ -1,10 +1,33 @@
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState, type ComponentType, type Ref } from "react";
+import { Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import WebView from "react-native-webview";
+
+// The package's iOS and Android prop types intersect to never under this SDK.
+const SupportView = WebView as unknown as ComponentType<{
+  ref?: Ref<WebView>;
+  style?: { height: number; width: number; opacity: number };
+  originWhitelist?: string[];
+  source?: { html: string; baseUrl: string };
+  injectedJavaScript?: string;
+  onLoadEnd?: () => void;
+  onMessage?: (event: { nativeEvent: { data: string } }) => void;
+  onError?: () => void;
+  onHttpError?: () => void;
+  onShouldStartLoadWithRequest?: (request: { url: string }) => boolean;
+}>;
 
 import { DISPLAY_NAME_KEY, SOUND_MUTED_KEY, openAppDatabase, writeSetting } from "./db";
 import { errorText } from "./errors";
+import {
+  ACTIVATE_LINE,
+  NOT_SENT,
+  READ_SUPPORT_PAGE,
+  appBuild,
+  cleanSupportNote,
+  supportFormHtml,
+  supportPageResult,
+} from "./feedback";
 import { validateCallName } from "./names";
-import { buyPremiumYear, loadPremiumOffer, type PremiumOffer } from "./premium";
 import { ui } from "./theme";
 
 export function ProfileScreen({
@@ -77,7 +100,7 @@ export function ProfileScreen({
       <Text style={ui.title} accessibilityRole="header">
         {name ?? "Profile"}
       </Text>
-      <PremiumCard notice={banner} onGesture={onGesture} />
+      <WriteToUs onGesture={onGesture} />
       <Text style={ui.section}>Name</Text>
       <TextInput
         testID="profile-name"
@@ -98,6 +121,11 @@ export function ProfileScreen({
       <Pressable style={ui.button} testID="profile-save" onPress={saveName}>
         <Text style={ui.buttonText}>Save</Text>
       </Pressable>
+      {banner ? (
+        <Text style={banner.failed ? ui.banner : ui.note} testID="profile-line">
+          {banner.text}
+        </Text>
+      ) : null}
       <Pressable
         style={ui.button}
         testID="sound"
@@ -110,79 +138,117 @@ export function ProfileScreen({
   );
 }
 
-function PremiumCard({
-  notice,
-  onGesture,
-}: {
-  notice: { text: string; failed: boolean } | null;
-  onGesture: () => void;
-}) {
-  const [offer, setOffer] = useState<PremiumOffer | null>(null);
-  const [note, setNote] = useState<string | null>(null);
+function hostAllowed(url: string): boolean {
+  if (url.startsWith("about:")) return true;
+  try {
+    const host = new URL(url).hostname;
+    return host === "formsubmit.co" || host.endsWith(".formsubmit.co") || host === "challenges.cloudflare.com";
+  } catch {
+    return false;
+  }
+}
+
+function WriteToUs({ onGesture }: { onGesture: () => void }) {
+  const [note, setNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [page, setPage] = useState<string | null>(null);
+  const [line, setLine] = useState<{ text: string; failed: boolean } | null>(null);
+  const view = useRef<WebView>(null);
+  const finished = useRef(false);
 
   useEffect(() => {
-    let live = true;
-    void loadPremiumOffer().then((next) => {
-      if (live) setOffer(next);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+    if (!sending) return;
+    const timer = setTimeout(() => finish(NOT_SENT, true, false), 25000);
+    return () => clearTimeout(timer);
+  }, [sending]);
 
-  function buy() {
-    onGesture();
-    if (!offer?.ready || offer.owned) return;
-    void buyPremiumYear().then((paid) => {
-      if (!paid) {
-        setNote("The payment was not completed.");
-        return;
-      }
-      setNote(null);
-      setOffer({ ...offer, owned: true });
-    });
+  function finish(text: string, failed: boolean, clear: boolean) {
+    if (finished.current) return;
+    finished.current = true;
+    setSending(false);
+    setPage(null);
+    setLine({ text, failed });
+    if (clear) setNote("");
   }
 
-  const price = offer?.priceLabel ?? "₹499 a year";
+  function readPage(text: string) {
+    const result = supportPageResult(text);
+    if (result === "wait") return;
+    if (result === "activate") finish(ACTIVATE_LINE, true, false);
+    else if (result === "sent") finish("Sent.", false, true);
+    else finish(NOT_SENT, true, false);
+  }
+
+  function send() {
+    onGesture();
+    if (sending) return;
+    let next: string | null;
+    try {
+      next = cleanSupportNote(note);
+    } catch (error: unknown) {
+      setLine({ text: errorText(error), failed: true });
+      return;
+    }
+    if (!next) {
+      setLine({ text: "Write a note before sending.", failed: true });
+      return;
+    }
+    if (Platform.OS !== "ios") {
+      setLine({ text: NOT_SENT, failed: true });
+      return;
+    }
+    finished.current = false;
+    setLine(null);
+    setPage(supportFormHtml(next, appBuild()));
+    setSending(true);
+  }
 
   return (
-    <View style={ui.card} testID="premium-card">
-      <Text style={ui.section}>Premium</Text>
-      <Text style={ui.percent} testID="premium-price">
-        {price}
-      </Text>
-      <Text style={ui.body}>
-        Today’s grid stays free. A year keeps older months and the later insights. Apple bills it.
-      </Text>
-      {offer?.owned ? (
-        <Text style={ui.body} testID="premium-on">
-          Premium is on.
+    <View style={ui.card} testID="write-to-us">
+      <Text style={ui.section}>Write to us</Text>
+      <Text style={ui.body}>A note or an idea. It goes to support@mydtc-app.com. The habit log stays on this phone.</Text>
+      <TextInput
+        testID="write-to-us-note"
+        value={note}
+        onChangeText={(value) => {
+          setNote(value);
+          setLine(null);
+        }}
+        onFocus={onGesture}
+        placeholder="Note"
+        placeholderTextColor="#8A7A9E"
+        maxLength={2000}
+        multiline
+        editable={!sending}
+        style={ui.noteBox}
+      />
+      <Pressable
+        style={ui.primary}
+        testID="write-to-us-send"
+        accessibilityLabel="Send"
+        disabled={sending}
+        onPress={send}
+      >
+        <Text style={ui.primaryText}>{sending ? "Sending…" : "Send"}</Text>
+      </Pressable>
+      {line ? (
+        <Text style={line.failed ? ui.banner : ui.note} testID="write-to-us-line">
+          {line.text}
         </Text>
       ) : null}
-      {offer?.ready && !offer.owned ? (
-        <>
-          <Text style={ui.quiet}>
-            The year renews until you cancel it in Settings, Apple ID, Subscriptions.
-          </Text>
-          <Pressable
-            style={ui.primary}
-            testID="premium-buy"
-            accessibilityLabel="Continue with Apple"
-            onPress={buy}
-          >
-            <Text style={ui.primaryText}>Continue with Apple</Text>
-          </Pressable>
-        </>
-      ) : null}
-      {offer && !offer.ready && !offer.owned ? (
-        <Text style={ui.quiet} testID="premium-waiting">
-          Not open for payment yet. It needs a paid Apple Developer membership and the product in App Store Connect.
-        </Text>
-      ) : null}
-      {note ? (
-        <Text style={ui.banner}>{note}</Text>
-      ) : notice ? (
-        <Text style={notice.failed ? ui.banner : ui.note}>{notice.text}</Text>
+      {page ? (
+        <SupportView
+          ref={view}
+          style={{ height: 1, width: 1, opacity: 0 }}
+          originWhitelist={["https://*", "about:*"]}
+          source={{ html: page, baseUrl: "https://formsubmit.co/" }}
+          injectedJavaScript={READ_SUPPORT_PAGE}
+          onLoadEnd={() => view.current?.injectJavaScript(READ_SUPPORT_PAGE)}
+          onMessage={(event) => readPage(event.nativeEvent.data)}
+          onError={() => finish(NOT_SENT, true, false)}
+          onHttpError={() => finish(NOT_SENT, true, false)}
+          onShouldStartLoadWithRequest={(request) => hostAllowed(request.url)}
+        />
       ) : null}
     </View>
   );

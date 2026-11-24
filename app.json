@@ -8,11 +8,16 @@
     "icon": "./assets/mydtc-logo.png",
     "backgroundColor": "#16121C",
     "ios": {
-      "supportsTablet": true,
-      "buildNumber": "4",
+      "bundleIdentifier": "com.gosubhash31.habit-log",
+      "appleTeamId": "FDVKXNCHTF",
+      "supportsTablet": false,
+      "buildNumber": "11",
       "infoPlist": {
         "CFBundleDisplayName": "MyDTC",
+        "NSCameraUsageDescription": "MyDTC uses the camera for a journal photo stored on this phone.",
+        "NSPhotoLibraryUsageDescription": "MyDTC uses the photo library for a journal photo stored on this phone.",
         "NSMicrophoneUsageDescription": "MyDTC uses the microphone for a journal voice note stored on this phone.",
+        "ITSAppUsesNonExemptEncryption": false,
         "UIFileSharingEnabled": true,
         "LSSupportsOpeningDocumentsInPlace": true
       }
@@ -32,6 +37,20 @@
         }
       ],
       "expo-localization",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MyDTC uses the photo library for a journal photo stored on this phone.",
+          "cameraPermission": "MyDTC uses the camera for a journal photo stored on this phone.",
+          "microphonePermission": "MyDTC uses the microphone for a journal voice note stored on this phone."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "MyDTC uses the microphone for a journal voice note stored on this phone."
+        }
+      ],
       "expo-iap"
     ]
   }
