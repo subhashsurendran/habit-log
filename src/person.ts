@@ -1,4 +1,4 @@
-export type Sex = "female" | "male";
+export type Sex = "female" | "male" | "prefer_not";
 
 export type Person = {
   name: string | null;
@@ -16,9 +16,9 @@ export function parseStoredAge(value: string | null): number | null {
   return age;
 }
 
-/** A stored sex this phone can use. Anything else is treated as blank. */
+/** A stored sex this phone can use. Prefer not to say is stored. Anything else is blank. */
 export function parseStoredSex(value: string | null): Sex | null {
-  if (value === "female" || value === "male") return value;
+  if (value === "female" || value === "male" || value === "prefer_not") return value;
   return null;
 }
 
