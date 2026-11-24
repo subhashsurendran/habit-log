@@ -108,7 +108,13 @@ function ageBand(age: number | null): AgeBand {
   return "older";
 }
 
-function catalog(band: AgeBand, sex: Sex | null): readonly HabitSuggestion[] {
+/** Prefer not to say is stored on the phone. Ideas uses the same lists as no sex. */
+function sexForList(sex: Sex | null): "female" | "male" | null {
+  if (sex === "female" || sex === "male") return sex;
+  return null;
+}
+
+function catalog(band: AgeBand, sex: "female" | "male" | null): readonly HabitSuggestion[] {
   if (band === "open" && sex == null) return HABIT_SUGGESTIONS;
   if (band === "open" && sex === "female") return openFemale;
   if (band === "open" && sex === "male") return openMale;
@@ -137,7 +143,7 @@ function withName(list: readonly HabitSuggestion[], name: string | null): HabitS
 
 /** Ideas for this phone. The habit name stays plain. The line may use the stored name. */
 export function ideasFor(person: Person): HabitSuggestion[] {
-  return withName(catalog(ageBand(person.age), person.sex), person.name);
+  return withName(catalog(ageBand(person.age), sexForList(person.sex)), person.name);
 }
 
 export function smallerLine(habitName: string): string {

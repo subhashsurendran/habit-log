@@ -166,12 +166,12 @@ export function ProfileScreen({
       <Text style={ui.section}>Sex</Text>
       <View accessibilityRole="radiogroup" testID="profile-sex" style={radio.group}>
         <SexRadio
-          label="Not set"
-          testID="profile-sex-blank"
-          selected={sexDraft == null}
+          label="Male"
+          testID="profile-sex-male"
+          selected={sexDraft === "male"}
           onPress={() => {
             onGesture();
-            setSexDraft(null);
+            setSexDraft("male");
             setBanner(null);
           }}
         />
@@ -186,17 +186,19 @@ export function ProfileScreen({
           }}
         />
         <SexRadio
-          label="Male"
-          testID="profile-sex-male"
-          selected={sexDraft === "male"}
+          label="Prefer not to say"
+          testID="profile-sex-prefer"
+          selected={sexDraft === "prefer_not"}
           onPress={() => {
             onGesture();
-            setSexDraft("male");
+            setSexDraft("prefer_not");
             setBanner(null);
           }}
         />
       </View>
-      <Text style={ui.quiet}>Age and sex stay on this phone. Not set stores no sex. Not medical advice.</Text>
+      <Text style={ui.quiet}>
+        Age and sex stay on this phone. Prefer not to say is stored. Not medical advice.
+      </Text>
       <Pressable style={ui.primary} testID="profile-save" onPress={saveName}>
         <Text style={ui.primaryText}>Save</Text>
       </Pressable>
