@@ -4,7 +4,8 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { addHabit, loadDashboard, openAppDatabase, type DashboardState } from "./db";
 import { errorText, logOpenFailed, OPEN_FAILED } from "./errors";
 import { EARLIER_DAYS_NOTE, earlierDaysCountAsNotDone } from "./month";
-import { HABIT_SUGGESTIONS, suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
+import type { Person } from "./person";
+import { alreadyKept, ideasFor, suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
 import { ui } from "./theme";
 import type { Entry } from "./types";
 
@@ -15,7 +16,7 @@ function kindLabel(entry: Entry): string {
   return "Checklist";
 }
 
-export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
+export function IdeasScreen({ person, onGesture }: { person: Person; onGesture: () => void }) {
   const [board, setBoard] = useState<DashboardState | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
   const [banner, setBannerState] = useState<{ text: string; failed: boolean } | null>(null);
@@ -73,9 +74,10 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
   }
 
   const names = board?.current.habits.map((habit) => habit.name) ?? [];
-  const gist = suggestionAt(HABIT_SUGGESTIONS, 0);
-  const rest = HABIT_SUGGESTIONS.filter((item) => item.name !== gist?.name);
-  const waiting = suggestionsNotKept(names);
+  const ideas = ideasFor(person);
+  const gist = suggestionAt(ideas, 0);
+  const rest = ideas.filter((item) => item.name !== gist?.name);
+  const waiting = suggestionsNotKept(names, ideas);
 
   return (
     <ScrollView style={ui.screen} contentContainerStyle={ui.page} testID="ideas-screen">
@@ -84,7 +86,7 @@ export function IdeasScreen({ onGesture }: { onGesture: () => void }) {
           What's kept
         </Text>
         <Text style={[ui.quiet, { marginTop: 4 }]} testID="ideas-about">
-          Habits people keep. Add puts one on this month.
+          Picked from the name, age, and sex on this phone. A blank age or sex still gets a list. Not medical advice.
         </Text>
       </View>
       {fatal ? <Text style={ui.body}>{fatal}</Text> : null}
@@ -126,7 +128,7 @@ function IdeaCard({
   onAdd: (item: HabitSuggestion) => void;
   live?: boolean;
 }) {
-  const kept = suggestionsNotKept(names).every((idea) => idea.name !== item.name);
+  const kept = alreadyKept(names, item.name);
   const slug = item.name.toLowerCase().replace(/\s+/g, "-");
   return (
     <View style={live ? ui.cardLive : ui.card} testID={`idea-${slug}`}>

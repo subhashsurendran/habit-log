@@ -424,6 +424,8 @@ export type TemplateDraft = {
   tags: readonly string[];
 };
 export const DISPLAY_NAME_KEY = "display_name";
+export const PROFILE_AGE_KEY = "profile_age";
+export const PROFILE_SEX_KEY = "profile_sex";
 export const SOUND_MUTED_KEY = "sound_muted";
 export const EVENING_HOUR_KEY = "evening_hour";
 export const EVENING_MINUTE_KEY = "evening_minute";
