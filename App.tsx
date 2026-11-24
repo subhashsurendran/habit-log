@@ -4,7 +4,7 @@ import { SafeAreaView, StyleSheet, Text, View } from "react-native";
 
 import { BrandLockup } from "./src/BrandLockup";
 import { CalmLoop, type CalmLoopHandle } from "./src/calmLoop";
-import { setCueSound } from "./src/cues";
+import { previewCueSound, setCueSound } from "./src/cues";
 import { DISPLAY_NAME_KEY, EVENING_HOUR_KEY, EVENING_MINUTE_KEY, SOUND_MUTED_KEY, loadMonth, openAppDatabase, readSetting, writeSetting } from "./src/db";
 import { logOpenFailed, OPEN_FAILED } from "./src/errors";
 import { AddHabitScreen } from "./src/AddHabitScreen";
@@ -129,7 +129,9 @@ function Shell() {
     };
   }, []);
 
-  setCueSound(!(prefs?.muted ?? true));
+  useEffect(() => {
+    setCueSound(!(prefs?.muted ?? true));
+  }, [prefs?.muted]);
 
   const bindBack = useCallback((handler: (() => boolean) | null) => {
     sheetBack.current = handler;
@@ -240,8 +242,11 @@ function Shell() {
             onName={(name) => setPrefs({ ...prefs, name })}
             onMuted={(muted) => setPrefs({ ...prefs, muted })}
             onGesture={onGesture}
-            onStart={() => undefined}
-            onStop={() => loop.current?.stop()}
+            onStart={() => previewCueSound()}
+            onStop={() => {
+              setCueSound(false);
+              loop.current?.stop();
+            }}
           />
         ) : null}
         {!fatal && prefs && (place.kind === "templates" || place.kind === "template-editor") ? (
