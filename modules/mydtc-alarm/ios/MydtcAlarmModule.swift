@@ -8,7 +8,7 @@ struct MydtcAlarmMetadata: AlarmMetadata {
   var label: String
 }
 
-@available(iOS 26.0, *)
+@available(iOS 26.1, *)
 @MainActor
 enum MydtcAlarmKit {
   static func authorization() -> String {
@@ -117,7 +117,7 @@ enum MydtcAlarmKit {
 
 func mydtcAlarmKitAvailable() -> Bool {
   #if canImport(AlarmKit)
-  if #available(iOS 26.0, *) {
+  if #available(iOS 26.1, *) {
     return true
   }
   #endif
@@ -134,7 +134,7 @@ public class MydtcAlarmModule: Module {
 
     AsyncFunction("authorization") { () async -> String in
       #if canImport(AlarmKit)
-      if #available(iOS 26.0, *) {
+      if #available(iOS 26.1, *) {
         return await MydtcAlarmKit.authorization()
       }
       #endif
@@ -144,7 +144,7 @@ public class MydtcAlarmModule: Module {
     AsyncFunction("schedule") {
       (id: String, hour: Int, minute: Int, title: String, skipWeekday: Int, prompt: Bool) async -> String in
       #if canImport(AlarmKit)
-      if #available(iOS 26.0, *) {
+      if #available(iOS 26.1, *) {
         return await MydtcAlarmKit.schedule(
           id: id,
           hour: hour,
@@ -160,7 +160,7 @@ public class MydtcAlarmModule: Module {
 
     AsyncFunction("cancel") { (id: String) async in
       #if canImport(AlarmKit)
-      if #available(iOS 26.0, *) {
+      if #available(iOS 26.1, *) {
         await MydtcAlarmKit.cancel(id: id)
       }
       #endif
@@ -168,7 +168,7 @@ public class MydtcAlarmModule: Module {
 
     AsyncFunction("armed") { (id: String) async -> Bool in
       #if canImport(AlarmKit)
-      if #available(iOS 26.0, *) {
+      if #available(iOS 26.1, *) {
         return await MydtcAlarmKit.armed(id: id)
       }
       #endif
