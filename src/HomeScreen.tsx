@@ -21,7 +21,8 @@ import { paintDoneToday } from "./markPaint";
 import { dateFor, EARLIER_DAYS_NOTE, earlierDaysCountAsNotDone, monthTitle } from "./month";
 import { validateCallName } from "./names";
 import { syncDailyReminder, syncEveningWrap, syncFollowUp } from "./notify";
-import { playNight } from "./cues";
+import { reminderFeedback } from "./reminderWhen";
+import { playNight, playTick } from "./cues";
 import { openTodayHabits, scoreStoredMonth, type OpenHabit } from "./score";
 import { suggestionAt, suggestionsNotKept, type HabitSuggestion } from "./suggestions";
 import { ui } from "./theme";
@@ -101,11 +102,13 @@ export function HomeScreen({
     const today = new Date();
     const monthId = board.current.id;
     marking.current.add(habit.id);
+    const painted = paintDoneToday(board.current, habit.id, habit.entry, today);
+    if (painted) playTick();
     setBoard((current) => {
       if (!current) return current;
-      const painted = paintDoneToday(current.current, habit.id, habit.entry, today);
-      if (!painted) return current;
-      return { ...current, current: painted };
+      const next = paintDoneToday(current.current, habit.id, habit.entry, today);
+      if (!next) return current;
+      return { ...current, current: next };
     });
     void openAppDatabase()
       .then(async (database) => {
@@ -122,7 +125,12 @@ export function HomeScreen({
           hours: habit.followUpHours,
           completed: true,
         });
-        setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null, result === "unavailable");
+        const missed = reminderFeedback(result, 0, 0, today, false);
+        if (result === "denied-notification" || result === "denied-alarm") {
+          setBanner(missed?.text ?? "Allow MyDTC to ring, or this reminder will not.", true);
+        } else {
+          setBanner(result === "unavailable" ? "Saved. The notification was not scheduled." : null, result === "unavailable");
+        }
         setBoard(await loadDashboard(database));
       })
       .catch(async (error: unknown) => {

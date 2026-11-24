@@ -1,0 +1,7 @@
+{
+  "name": "mydtc-alarm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Schedules an iPhone alarm when AlarmKit is in the iOS SDK.",
+  "license": "UNLICENSED"
+}

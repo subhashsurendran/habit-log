@@ -3,7 +3,8 @@
 These answers are for the App Store privacy questions. This note is not a public URL.
 
 - Encryption: Yes. The log uses the app's own AES. It qualifies for the exemption.
-- Local notifications: Declared. They are used for reminders.
+- Local notifications: Declared. They are used for reminders when AlarmKit is not in the iOS SDK.
+- Alarms: AlarmKit, only when that framework is in the iOS SDK. The alarm stays on the phone.
 - Account: None.
 - Tracking: None.
 

@@ -1,4 +1,10 @@
-import { createAudioPlayer, preload, setAudioModeAsync, type AudioPlayer } from "expo-audio";
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  setIsAudioActiveAsync,
+  type AudioPlayer,
+  type AudioStatus,
+} from "expo-audio";
 
 const tickSource = require("../assets/tick.wav") as number;
 const nightSource = require("../assets/night.wav") as number;
@@ -6,27 +12,18 @@ const nightSource = require("../assets/night.wav") as number;
 type Cue = {
   source: number;
   player: AudioPlayer | null;
+  token: number;
 };
 
-const tick: Cue = { source: tickSource, player: null };
-const night: Cue = { source: nightSource, player: null };
+const tick: Cue = { source: tickSource, player: null, token: 0 };
+const night: Cue = { source: nightSource, player: null, token: 0 };
 
 let soundOn = false;
 
-/** Buffer the local cues once. This does not play them. Web preload may return nothing. */
-function bufferCue(source: number): void {
-  try {
-    const pending = preload(source) as Promise<void> | undefined;
-    if (pending && typeof pending.catch === "function") void pending.catch(() => undefined);
-  } catch {
-    // The cue can still be created when it is played.
-  }
-}
-
-bufferCue(tickSource);
-bufferCue(nightSource);
-
-/** Sound stays off until Profile turns it on. Does not play. */
+/**
+ * Sound stays off until Profile turns it on. Does not play.
+ * Opening the app and re-rendering Profile must not play a cue.
+ */
 export function setCueSound(on: boolean): void {
   soundOn = on;
   if (on) return;
@@ -38,12 +35,21 @@ export function setCueSound(on: boolean): void {
   }
 }
 
-function armPlayback(): Promise<void> {
-  return setAudioModeAsync({
+/**
+ * expo-audio 58.0.9 starts play() and only then activates the session, on a
+ * side queue. This tick is 0.12s, so it finished before the speaker was on.
+ * A seek fired at the same time cancelled that play. The iOS default for
+ * playsInSilentMode is false, so an unarmed session is also silent on the
+ * ring/silent switch. Arm playback, wait until the file is loaded, seek, then play.
+ */
+async function armPlayback(): Promise<void> {
+  await setAudioModeAsync({
     playsInSilentMode: true,
     allowsRecording: false,
     interruptionMode: "mixWithOthers",
-  }).catch(() => undefined);
+    shouldPlayInBackground: false,
+  });
+  await setIsAudioActiveAsync(true);
 }
 
 function playerFor(cue: Cue): AudioPlayer | null {
@@ -51,6 +57,8 @@ function playerFor(cue: Cue): AudioPlayer | null {
   try {
     const player = createAudioPlayer(cue.source);
     player.loop = false;
+    player.volume = 1;
+    player.muted = false;
     cue.player = player;
     return player;
   } catch {
@@ -58,21 +66,50 @@ function playerFor(cue: Cue): AudioPlayer | null {
   }
 }
 
+function whenLoaded(player: AudioPlayer): Promise<void> {
+  if (player.isLoaded) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      subscription.remove();
+      resolve();
+    };
+    const timer = setTimeout(finish, 800);
+    const subscription = player.addListener("playbackStatusUpdate", (status: AudioStatus) => {
+      if (status.isLoaded) finish();
+    });
+  });
+}
+
 function playCue(cue: Cue): void {
   if (!soundOn) return;
-  const player = playerFor(cue);
-  if (!player) return;
-  void armPlayback().then(() => {
-    if (!soundOn) return;
+  const token = cue.token + 1;
+  cue.token = token;
+  void (async () => {
     try {
+      await armPlayback();
+      if (!soundOn || cue.token !== token) return;
+      const player = playerFor(cue);
+      if (!player) return;
       player.loop = false;
-      // Do not wait on seekTo. A rejected seek used to skip play() entirely.
-      void player.seekTo(0).catch(() => undefined);
+      player.volume = 1;
+      player.muted = false;
+      await whenLoaded(player);
+      if (!soundOn || cue.token !== token) return;
+      try {
+        await player.seekTo(0);
+      } catch {
+        // The file can still start from the beginning.
+      }
+      if (!soundOn || cue.token !== token) return;
       player.play();
     } catch {
       // A refused audio session should not block the grid.
     }
-  });
+  })();
 }
 
 export function playTick(): void {
@@ -83,7 +120,7 @@ export function playNight(): void {
   playCue(night);
 }
 
-/** Profile switched to Sound on. The tick is the short cue they can hear. */
+/** Profile switched to Sound on. One tick, from that tap, not from a later render. */
 export function previewCueSound(): void {
   setCueSound(true);
   playTick();
